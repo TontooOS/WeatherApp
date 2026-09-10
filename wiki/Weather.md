@@ -78,10 +78,13 @@ symbol is missing; callers skip the image in that case.
 `weather::fetch_current_fast` loads current conditions first (single
 request, header and sidebar appear immediately), then
 `weather::fetch_rest` loads hourly, daily, air quality and sun times in
-parallel threads. Results reach the UI through an `mpsc` channel drained
-by a `150ms` GTK poll. A process-lifetime cache (10 minute TTL) makes
-re-selects instant. Offline requests fall back to demo data and show the
-`error.offline` badge.
+parallel threads. Condition icons are pre-rendered in the same worker so
+the UI thread only hits the disk cache. Results reach the UI through an
+`mpsc` channel drained by a `150ms` GTK poll. The live position
+(CoreLocation network) also resolves on a worker thread and prepends
+itself once. A process-lifetime cache (10 minute TTL) makes re-selects
+instant. Offline requests fall back to demo data and show the
+`error.offline` badge. No network call ever runs on the UI thread.
 
 `store::load_places` and `store::save_places` persist `SavedPlace`
 entities (`name`, `country`, `lat`, `lon`, `is_current`) in the CoreData

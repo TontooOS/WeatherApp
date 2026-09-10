@@ -11,8 +11,7 @@ use crate::store::{load_places, save_places, SavedPlace};
 use crate::weather::{
   self, background_for, compass, condition_for, day_name, fmt_temp, hour_label, label_key,
   sf_symbol, Condition, FoundPlace, PlaceWeather,
-};
-use crate::WeatherKit::CurrentWeather;
+};use crate::WeatherKit::CurrentWeather;
 use crate::TontooUI::Button;
 use crate::UIKit::prelude::*;
 use crate::UIKit::widget::{next_widget_id, WidgetId};
@@ -166,6 +165,7 @@ impl Shared {
 enum Msg {
   Place(usize, PlaceWeather),
   Current(usize, CurrentWeather),
+  MyLocation(String, String, f64, f64),
   Search(u64, Vec<FoundPlace>),
 }
 
@@ -1169,11 +1169,30 @@ impl Widget for WeatherRoot {
     // Initial build + fetch.
     rebuild();
     fetch_all(&shared);
+    // Live position (CoreLocation network) strictly off the UI thread.
+    {
+      let tx = tx.clone();
+      std::thread::spawn(move || {
+        if let Ok(loc) = crate::CoreLocation::CoreLocation::new().get_location() {
+          let name = loc
+            .city
+            .clone()
+            .unwrap_or_else(|| crate::lang::t("sidebar.my_location"));
+          let _ = tx.send(Msg::MyLocation(
+            name,
+            loc.country.clone().unwrap_or_default(),
+            loc.coordinates.latitude,
+            loc.coordinates.longitude,
+          ));
+        }
+      });
+    }
 
     // Main poll loop: place data and search results.
     let shared_poll = shared.clone();
     let detail_poll = detail.clone();
     let rows_poll = rows.clone();
+    let rebuild_poll = rebuild.clone();
     let seen_search: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
     glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
       while let Ok(msg) = rx.try_recv() {
@@ -1218,8 +1237,30 @@ impl Widget for WeatherRoot {
               refresh_detail(&detail_poll, &shared_poll);
             }
           }
-          Msg::Search(seq, found) => {
-            if seq >= *seen_search.borrow() {
+          Msg::MyLocation(name, country, lat, lon) => {
+            // Live position resolved on a worker thread: reuse a nearby
+            // entry when one exists, otherwise prepend it once.
+            let mut places = shared_poll.places.borrow_mut();
+            if let Some(existing) = places.iter_mut().find(|p| {
+              (p.lat - lat).abs() < 0.05 && (p.lon - lon).abs() < 0.05
+            }) {
+              if !existing.is_current {
+                existing.is_current = true;
+                save_places(&places);
+              }
+            } else if !places.iter().any(|p| p.is_current) {
+              let mut mine = SavedPlace::new(name, country, lat, lon);
+              mine.is_current = true;
+              places.insert(0, mine);
+              drop(places);
+              shared_poll.data.borrow_mut().insert(0, None);
+              *shared_poll.selected.borrow_mut() += 1;
+              save_places(&shared_poll.places.borrow());
+              rebuild_poll();
+              load_index(&shared_poll, 0);
+            }
+          }
+          Msg::Search(seq, found) => {            if seq >= *seen_search.borrow() {
               *seen_search.borrow_mut() = seq;
               SEARCH_SINK.with(|sink| {
                 if let Some(callback) = sink.borrow().as_ref() {
@@ -1259,6 +1300,31 @@ fn load_index(shared: &Shared, index: usize) {
     let rest = weather::fetch_rest(place.lat, place.lon);
     let full = weather::assemble(current, rest, false);
     weather::store_place(place.lat, place.lon, &full);
+    // Pre-render condition icons off the UI thread so the detail
+    // refresh only hits the disk cache.
+    {
+      use std::collections::HashSet;
+      let mut symbols: Vec<(&str, u32)> = Vec::new();
+      let current_cond = condition_for(full.current.weather_code, &full.current.condition);
+      symbols.push((sf_symbol(current_cond, full.current.is_day), 28));
+      for hour in full.hourly.iter().take(12) {
+        symbols.push((
+          sf_symbol(condition_for(hour.weather_code, ""), full.current.is_day),
+          28,
+        ));
+      }
+      for day in full.daily.iter() {
+        symbols.push((sf_symbol(condition_for(day.weather_code, ""), true), 20));
+      }
+      let mut seen = HashSet::new();
+      for (symbol, px) in symbols {
+        for dark in [true, false] {
+          if seen.insert((symbol, px, dark)) {
+            let _ = weather::weather_icon_path(symbol, px, dark);
+          }
+        }
+      }
+    }
     let _ = tx.send(Msg::Place(index, full));
   });
 }

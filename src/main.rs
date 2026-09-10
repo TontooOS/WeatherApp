@@ -25,11 +25,11 @@ impl AppDelegate for WeatherDelegate {
 
 fn main() {
   lang::init();
-  let mut app = App::with_delegate(lang::t("app.title"), 1024, 640, WeatherDelegate);
+  let mut app = App::with_delegate(lang::t("app.title"), 1200, 675, WeatherDelegate);
   // No extra window bar: the sidebar draws the only traffic lights.
   app.no_window_bar();
-  // Exact size for testing (bypasses content measure + monitor cap).
-  app.force_size(1600, 900);
+  // Exact default size (bypasses content measure + monitor cap).
+  app.force_size(1200, 675);
   app.auto_color_scheme();
   app.run();
 }
