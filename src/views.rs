@@ -1106,6 +1106,20 @@ impl Widget for WeatherRoot {
             let Some(place) = shared.places.borrow().get(index).cloned() else { return };
             let pop = gtk::Popover::new();
             pop.set_parent(&row_menu);
+            // Chromeless popover: no arrow, no frame, only the button itself.
+            pop.set_has_arrow(false);
+            {
+              let provider = gtk::CssProvider::new();
+              provider.load_from_string(
+                ".wx-pop, .wx-pop contents { background-color: transparent; border: none; box-shadow: none; padding: 0; }",
+              );
+              gtk::style_context_add_provider_for_display(
+                &gtk::gdk::Display::default().expect("gdk display"),
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_USER as u32,
+              );
+              pop.add_css_class("wx-pop");
+            }
             let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
             let item = gtk::Button::with_label(&lang::t("sidebar.delete"));
             menu_box.append(&item);
