@@ -5,6 +5,9 @@
 //! labels and dynamic background gradients.
 
 use crate::WeatherKit::{AirQuality, CurrentWeather, ForecastDay, HourPoint, Place, WeatherKit};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Condition groups used for backgrounds, icons and labels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,7 +258,8 @@ pub struct PlaceWeather {
   pub offline: bool,
 }
 
-fn demo_weather() -> PlaceWeather {
+/// Offline demo snapshot shown instantly when the network fails.
+pub fn demo_weather() -> PlaceWeather {
   PlaceWeather {
     current: CurrentWeather {
       temperature_c: 15.0,
@@ -304,32 +308,6 @@ fn demo_weather() -> PlaceWeather {
   }
 }
 
-/// Fetch everything for fixed coordinates; falls back to demo data offline.
-pub fn fetch_place(lat: f64, lon: f64) -> PlaceWeather {
-  let kit = WeatherKit::at(lat, lon);
-  let current = match kit.current_weather() {
-    Ok(current) => current,
-    Err(_) => return demo_weather(),
-  };
-  let hourly = kit.hourly_forecast(24).unwrap_or_default();
-  let daily = kit.daily_forecast(10).unwrap_or_default();
-  let air = kit.air_quality().ok();
-  let (year, month, day) = today_ymd();
-  let (sunrise, sunset) = match kit.sun_times(year, month, day) {
-    Ok(times) => (Some(times.sunrise), Some(times.sunset)),
-    Err(_) => (None, None),
-  };
-  PlaceWeather {
-    current,
-    hourly,
-    daily,
-    air,
-    sunrise,
-    sunset,
-    offline: false,
-  }
-}
-
 /// Search result for the add-location dialog.
 #[derive(Clone, Debug)]
 pub struct FoundPlace {
@@ -337,6 +315,89 @@ pub struct FoundPlace {
   pub country: String,
   pub lat: f64,
   pub lon: f64,
+}
+
+/// Process-lifetime cache so re-selects never touch the network.
+static PLACE_CACHE: OnceLock<Mutex<HashMap<String, (Instant, PlaceWeather)>>> = OnceLock::new();
+
+const CACHE_TTL: Duration = Duration::from_secs(600);
+
+fn cache() -> &'static Mutex<HashMap<String, (Instant, PlaceWeather)>> {
+  PLACE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key(lat: f64, lon: f64) -> String {
+  format!("{:.2},{:.2}", lat, lon)
+}
+
+/// Cached snapshot when younger than [`CACHE_TTL`].
+pub fn cached_place(lat: f64, lon: f64) -> Option<PlaceWeather> {
+  let guard = cache().lock().ok()?;
+  let (at, weather) = guard.get(&cache_key(lat, lon))?;
+  if at.elapsed() < CACHE_TTL {
+    Some(weather.clone())
+  } else {
+    None
+  }
+}
+
+/// Store a complete snapshot in the process cache.
+pub fn store_place(lat: f64, lon: f64, weather: &PlaceWeather) {
+  if let Ok(mut guard) = cache().lock() {
+    guard.insert(cache_key(lat, lon), (Instant::now(), weather.clone()));
+  }
+}
+
+/// Stage 1: current conditions only (single request, shows immediately).
+/// Returns `None` when the network fails.
+pub fn fetch_current_fast(lat: f64, lon: f64) -> Option<CurrentWeather> {
+  WeatherKit::at(lat, lon).current_weather().ok()
+}
+
+/// Stage 2: everything else, fetched in parallel threads.
+#[derive(Clone, Debug, Default)]
+pub struct PlaceRest {
+  pub hourly: Vec<HourPoint>,
+  pub daily: Vec<ForecastDay>,
+  pub air: Option<AirQuality>,
+  pub sunrise: Option<(u32, u32)>,
+  pub sunset: Option<(u32, u32)>,
+}
+
+pub fn fetch_rest(lat: f64, lon: f64) -> PlaceRest {
+  std::thread::scope(|scope| {
+    let hourly = scope.spawn(move || WeatherKit::at(lat, lon).hourly_forecast(24).unwrap_or_default());
+    let daily = scope.spawn(move || WeatherKit::at(lat, lon).daily_forecast(10).unwrap_or_default());
+    let air = scope.spawn(move || WeatherKit::at(lat, lon).air_quality().ok());
+    let sun = scope.spawn(move || {
+      let (year, month, day) = today_ymd();
+      WeatherKit::at(lat, lon).sun_times(year, month, day).ok()
+    });
+    let (sunrise, sunset) = match sun.join() {
+      Ok(Some(times)) => (Some(times.sunrise), Some(times.sunset)),
+      _ => (None, None),
+    };
+    PlaceRest {
+      hourly: hourly.join().unwrap_or_default(),
+      daily: daily.join().unwrap_or_default(),
+      air: air.join().unwrap_or(None),
+      sunrise,
+      sunset,
+    }
+  })
+}
+
+/// Combine staged results into a full snapshot.
+pub fn assemble(current: CurrentWeather, rest: PlaceRest, offline: bool) -> PlaceWeather {
+  PlaceWeather {
+    current,
+    hourly: rest.hourly,
+    daily: rest.daily,
+    air: rest.air,
+    sunrise: rest.sunrise,
+    sunset: rest.sunset,
+    offline,
+  }
 }
 
 /// Search places by name via WeatherKit (empty when offline).

@@ -12,6 +12,7 @@ use crate::weather::{
   self, background_for, compass, condition_for, day_name, fmt_temp, hour_label, label_key,
   sf_symbol, Condition, FoundPlace, PlaceWeather,
 };
+use crate::WeatherKit::CurrentWeather;
 use crate::TontooUI::Button;
 use crate::UIKit::prelude::*;
 use crate::UIKit::widget::{next_widget_id, WidgetId};
@@ -65,7 +66,7 @@ fn offline_color() -> &'static str {
 fn apply_class(widget: &impl IsA<gtk::Widget>, class: &str, rules: &str) {
   let provider = gtk::CssProvider::new();
   provider.load_from_string(&format!(".{class} {{ {rules} }}"));
-  gtk::StyleContext::add_provider_for_display(
+  gtk::style_context_add_provider_for_display(
     &gtk::gdk::Display::default().expect("gdk display"),
     &provider,
     gtk::STYLE_PROVIDER_PRIORITY_USER as u32,
@@ -164,6 +165,7 @@ impl Shared {
 
 enum Msg {
   Place(usize, PlaceWeather),
+  Current(usize, CurrentWeather),
   Search(u64, Vec<FoundPlace>),
 }
 
@@ -722,7 +724,7 @@ impl Widget for WeatherRoot {
     let bg = gtk::Box::new(gtk::Orientation::Vertical, 0);
     bg.set_hexpand(true);
     bg.set_vexpand(true);
-    gtk::StyleContext::add_provider_for_display(
+    gtk::style_context_add_provider_for_display(
       &gtk::gdk::Display::default().expect("gdk display"),
       &bg_provider,
       gtk::STYLE_PROVIDER_PRIORITY_USER as u32,
@@ -956,6 +958,34 @@ impl Widget for WeatherRoot {
     glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
       while let Ok(msg) = rx.try_recv() {
         match msg {
+          Msg::Current(index, current) => {
+            {
+              let mut data = shared_poll.data.borrow_mut();
+              if index < data.len() {
+                match data[index].as_mut() {
+                  Some(existing) => {
+                    existing.current = current;
+                    existing.offline = false;
+                  }
+                  None => {
+                    data[index] = Some(PlaceWeather {
+                      current,
+                      hourly: Vec::new(),
+                      daily: Vec::new(),
+                      air: None,
+                      sunrise: None,
+                      sunset: None,
+                      offline: false,
+                    });
+                  }
+                }
+              }
+            }
+            refresh_rows(&rows_poll.borrow(), &shared_poll);
+            if index == *shared_poll.selected.borrow() {
+              refresh_detail(&detail_poll, &shared_poll);
+            }
+          }
           Msg::Place(index, weather) => {
             let mut data = shared_poll.data.borrow_mut();
             if index < data.len() {
@@ -987,35 +1017,39 @@ impl Widget for WeatherRoot {
   }
 }
 
-fn fetch_missing(shared: &Shared) {
-  let selected = *shared.selected.borrow();
-  let has_data = shared.data.borrow().get(selected).and_then(|d| d.clone()).is_some();
-  if has_data || shared.fetching.borrow().contains(&selected) {
+/// Staged load: cache hit sends the full snapshot at once, otherwise the
+/// fast current conditions go out first and the rest follows in parallel.
+fn load_index(shared: &Shared, index: usize) {
+  if shared.fetching.borrow().contains(&index) {
     return;
   }
-  let Some(place) = shared.places.borrow().get(selected).cloned() else { return };
-  shared.fetching.borrow_mut().insert(selected);
+  let Some(place) = shared.places.borrow().get(index).cloned() else { return };
+  if let Some(hit) = weather::cached_place(place.lat, place.lon) {
+    let _ = shared.tx.send(Msg::Place(index, hit));
+    return;
+  }
+  shared.fetching.borrow_mut().insert(index);
   let tx = shared.tx.clone();
   std::thread::spawn(move || {
-    let weather = weather::fetch_place(place.lat, place.lon);
-    let _ = tx.send(Msg::Place(selected, weather));
+    let Some(current) = weather::fetch_current_fast(place.lat, place.lon) else {
+      let _ = tx.send(Msg::Place(index, weather::demo_weather()));
+      return;
+    };
+    let _ = tx.send(Msg::Current(index, current.clone()));
+    let rest = weather::fetch_rest(place.lat, place.lon);
+    let full = weather::assemble(current, rest, false);
+    weather::store_place(place.lat, place.lon, &full);
+    let _ = tx.send(Msg::Place(index, full));
   });
 }
 
+fn fetch_missing(shared: &Shared) {
+  load_index(shared, *shared.selected.borrow());
+}
+
 fn fetch_all(shared: &Shared) {
-  let places = shared.places.borrow().clone();
-  for (index, place) in places.iter().enumerate() {
-    if shared.data.borrow().get(index).and_then(|d| d.clone()).is_some()
-      || shared.fetching.borrow().contains(&index)
-    {
-      continue;
-    }
-    shared.fetching.borrow_mut().insert(index);
-    let tx = shared.tx.clone();
-    let (lat, lon) = (place.lat, place.lon);
-    std::thread::spawn(move || {
-      let weather = weather::fetch_place(lat, lon);
-      let _ = tx.send(Msg::Place(index, weather));
-    });
+  let count = shared.places.borrow().len();
+  for index in 0..count {
+    load_index(shared, index);
   }
 }

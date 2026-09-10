@@ -70,11 +70,13 @@ symbol is missing; callers skip the image in that case.
 
 ## Data and Storage
 
-`weather::fetch_place(lat, lon)` loads current, hourly (24), daily (10),
-air quality and sun times through `WeatherKit::at`. All network calls
-run on worker threads; results reach the UI through an `mpsc` channel
-drained by a `150ms` GTK poll. Offline requests fall back to demo data
-and show the `error.offline` badge.
+`weather::fetch_current_fast` loads current conditions first (single
+request, header and sidebar appear immediately), then
+`weather::fetch_rest` loads hourly, daily, air quality and sun times in
+parallel threads. Results reach the UI through an `mpsc` channel drained
+by a `150ms` GTK poll. A process-lifetime cache (10 minute TTL) makes
+re-selects instant. Offline requests fall back to demo data and show the
+`error.offline` badge.
 
 `store::load_places` and `store::save_places` persist `SavedPlace`
 entities (`name`, `country`, `lat`, `lon`, `is_current`) in the CoreData
