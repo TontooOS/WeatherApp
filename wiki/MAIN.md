@@ -30,4 +30,5 @@ fallback. See [Weather.md](Weather.md) for details.
 
 ## Changelog
 
+- 2026-09-10: Traffic light crash (red/yellow/green click aborted with `RefCell already borrowed`) fixed in UIKit `dispatch_custom` (commit `8c10991` in the UIKit repo): window handle and action are snapshotted under a short shared borrow, window methods run borrow-free.
 - 2026-09-09: Initial wiki, Weather app with sidebar, dynamic backgrounds, MapsKit panel and Accessibility localization.
