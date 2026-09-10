@@ -31,8 +31,9 @@ Below, one row per saved location shows the name, current time plus
 condition, live temperature and the daily high/low.
 
 - Left click selects the location and refreshes the detail view.
-- Right click opens a context menu with a delete option; confirming in
-  the dialog removes the location (at least one location is kept).
+- Right click opens a context menu with a delete option; the centered
+  in-app confirmation overlay asks once more before the location is
+  removed (at least one location is kept).
 - The `+` button opens a centered search overlay: a text input for city
   names or postal codes with matching places as text rows below.
   Clicking a row adds it and persists via `store::save_places`.

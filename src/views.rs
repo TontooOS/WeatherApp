@@ -701,28 +701,43 @@ fn build_search_overlay(shared: &Shared, rebuild: Rc<dyn Fn()>) -> (gtk::Widget,
   (layer.upcast(), show)
 }
 
-/// Confirm dialog for removing a sidebar location.
-fn open_confirm_delete(shared: &Shared, rebuild: &Rc<dyn Fn()>, lat: f64, lon: f64, name: &str) {
-  let window = gtk::Window::new();
-  window.set_title(Some(&lang::t("delete.title")));
-  window.set_default_size(340, 160);
-  window.set_modal(true);
+/// Delete confirmation as a centered overlay inside the app window
+/// (no separate OS window). Returns the overlay widget plus a `show`
+/// callback taking coordinates and the display name.
+fn build_confirm_overlay(
+  shared: &Shared,
+  rebuild: Rc<dyn Fn()>,
+) -> (gtk::Widget, Rc<dyn Fn(f64, f64, String)>) {
+  let shared = shared.clone();
+
+  let layer = gtk::Overlay::new();
+  layer.set_hexpand(true);
+  layer.set_vexpand(true);
+  layer.set_visible(false);
+
+  let dim = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+  dim.set_hexpand(true);
+  dim.set_vexpand(true);
+  dim.set_halign(gtk::Align::Fill);
+  dim.set_valign(gtk::Align::Fill);
+  apply_class(&dim, "wx-dim", "background-color: rgba(0,0,0,0.45);");
+  layer.set_child(Some(&dim));
+
+  let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+  card.set_size_request(360, -1);
+  card.set_halign(gtk::Align::Center);
+  card.set_valign(gtk::Align::Center);
   if dark() {
-    apply_class(&window, "wx-confirm", "background-color: #2C2C2E; border-radius: 12px;");
+    apply_class(&card, "wx-confirmcard", "background-color: #2C2C2E; border-radius: 14px; padding: 18px;");
   } else {
-    apply_class(&window, "wx-confirm", "background-color: #FFFFFF; border-radius: 12px;");
+    apply_class(&card, "wx-confirmcard", "background-color: #FFFFFF; border-radius: 14px; padding: 18px;");
   }
+  layer.add_overlay(&card);
 
-  let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
-  outer.set_margin_top(16);
-  outer.set_margin_bottom(16);
-  outer.set_margin_start(16);
-  outer.set_margin_end(16);
-
-  let message = label(&lang::t("delete.message").replace("%name%", name), 14, "normal", pal().0);
+  let message = label("", 14, "normal", pal().0);
   message.set_wrap(true);
   message.set_halign(gtk::Align::Start);
-  outer.append(&message);
+  card.append(&message);
 
   let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
   buttons.set_halign(gtk::Align::End);
@@ -730,42 +745,90 @@ fn open_confirm_delete(shared: &Shared, rebuild: &Rc<dyn Fn()>, lat: f64, lon: f
   let remove_gtk = Button::new(lang::t("delete.remove")).to_gtk();
   buttons.append(&cancel_gtk);
   buttons.append(&remove_gtk);
-  outer.append(&buttons);
+  card.append(&buttons);
 
-  window.set_child(Some(&outer));
-  window.present();
+  let pending: Rc<RefCell<Option<(f64, f64)>>> = Rc::new(RefCell::new(None));
+  let hide = {
+    let layer = layer.clone();
+    let pending = pending.clone();
+    Rc::new(move || {
+      *pending.borrow_mut() = None;
+      layer.set_visible(false);
+    })
+  };
+  let show = {
+    let layer = layer.clone();
+    let message = message.clone();
+    let pending = pending.clone();
+    Rc::new(move |lat: f64, lon: f64, name: String| {
+      *pending.borrow_mut() = Some((lat, lon));
+      message.set_markup(&format!(
+        "<span font_desc=\"{} normal 14\" foreground=\"{}\">{}</span>",
+        SF_PRO,
+        pal().0,
+        glib::markup_escape_text(&lang::t("delete.message").replace("%name%", &name)),
+      ));
+      layer.set_visible(true);
+    })
+  };
 
+  // Click on the dim area or Escape closes the overlay.
   {
-    let window = window.clone();
-    let cancel = gtk::GestureClick::new();
-    cancel.connect_released(move |_, _, _, _| window.close());
-    cancel_gtk.add_controller(cancel);
+    let hide = hide.clone();
+    let dismiss = gtk::GestureClick::new();
+    dismiss.connect_released(move |_, _, _, _| hide());
+    dim.add_controller(dismiss);
   }
   {
-    let window = window.clone();
+    let hide = hide.clone();
+    let esc = gtk::EventControllerKey::new();
+    esc.connect_key_pressed(move |_, key, _, _| {
+      if key == gtk::gdk::Key::Escape {
+        hide();
+        glib::Propagation::Stop
+      } else {
+        glib::Propagation::Proceed
+      }
+    });
+    card.add_controller(esc);
+  }
+  // Cancel closes the overlay.
+  {
+    let hide = hide.clone();
+    let cancel = gtk::GestureClick::new();
+    cancel.connect_released(move |_, _, _, _| hide());
+    cancel_gtk.add_controller(cancel);
+  }
+  // Delete removes the pending location.
+  {
+    let hide = hide.clone();
     let shared = shared.clone();
-    let rebuild = rebuild.clone();
+    let pending = pending.clone();
     let remove = gtk::GestureClick::new();
     remove.connect_released(move |_, _, _, _| {
-      let mut places = shared.places.borrow_mut();
-      if places.len() > 1 {
-        if let Some(index) = places
-          .iter()
-          .position(|p| (p.lat - lat).abs() < 0.0001 && (p.lon - lon).abs() < 0.0001)
-        {
-          places.remove(index);
-          drop(places);
-          shared.data.borrow_mut().remove(index);
-          let selected = (*shared.selected.borrow()).min(shared.places.borrow().len() - 1);
-          *shared.selected.borrow_mut() = selected;
-          save_places(&shared.places.borrow());
-          rebuild();
+      if let Some((lat, lon)) = *pending.borrow() {
+        let mut places = shared.places.borrow_mut();
+        if places.len() > 1 {
+          if let Some(index) = places
+            .iter()
+            .position(|p| (p.lat - lat).abs() < 0.0001 && (p.lon - lon).abs() < 0.0001)
+          {
+            places.remove(index);
+            drop(places);
+            shared.data.borrow_mut().remove(index);
+            let selected = (*shared.selected.borrow()).min(shared.places.borrow().len() - 1);
+            *shared.selected.borrow_mut() = selected;
+            save_places(&shared.places.borrow());
+            rebuild();
+          }
         }
       }
-      window.close();
+      hide();
     });
     remove_gtk.add_controller(remove);
   }
+
+  (layer.upcast(), show)
 }
 
 thread_local! {
@@ -960,7 +1023,8 @@ impl Widget for WeatherRoot {
 
     // Sidebar rows.
     let rows: Rc<RefCell<Vec<RowH>>> = Rc::new(RefCell::new(Vec::new()));
-    let rebuild_slot: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+    let confirm_slot: Rc<RefCell<Option<Rc<dyn Fn(f64, f64, String)>>>> =
+      Rc::new(RefCell::new(None));
     let select = {
       let shared = shared.clone();
       let rows = rows.clone();
@@ -980,7 +1044,7 @@ impl Widget for WeatherRoot {
       let detail = detail.clone();
       let list = list.clone();
       let select = select.clone();
-      let rebuild_slot = rebuild_slot.clone();
+      let confirm_show = confirm_slot.clone();
       Rc::new(move || {
         while let Some(child) = list.first_child() {
           list.remove(&child);
@@ -1030,8 +1094,8 @@ impl Widget for WeatherRoot {
           let delete = gtk::GestureClick::new();
           delete.set_button(3);
           let shared = shared.clone();
-          let rebuild_slot = rebuild_slot.clone();
           let row_menu = row.clone();
+          let confirm_show = confirm_show.clone();
           delete.connect_released(move |_, _, x, y| {
             if shared.places.borrow().len() <= 1 {
               return;
@@ -1045,13 +1109,12 @@ impl Widget for WeatherRoot {
             pop.set_child(Some(&menu_box));
             pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 4, 4)));
             let pop_c = pop.clone();
-            let shared = shared.clone();
-            let rebuild_slot = rebuild_slot.clone();
+            let slot = confirm_show.clone();
             let (lat, lon, name) = (place.lat, place.lon, place.name.clone());
             item.connect_clicked(move |_| {
               pop_c.popdown();
-              if let Some(rebuild) = rebuild_slot.borrow().as_ref().cloned() {
-                open_confirm_delete(&shared, &rebuild, lat, lon, &name);
+              if let Some(show) = slot.borrow().as_ref().cloned() {
+                show(lat, lon, name.clone());
               }
             });
             pop.popup();
@@ -1072,6 +1135,9 @@ impl Widget for WeatherRoot {
     root.set_child(Some(&outer));
     let (search_layer, show_search) = build_search_overlay(&shared, rebuild.clone());
     root.add_overlay(&search_layer);
+    let (confirm_layer, show_confirm) = build_confirm_overlay(&shared, rebuild.clone());
+    root.add_overlay(&confirm_layer);
+    *confirm_slot.borrow_mut() = Some(show_confirm);
 
     // Add button opens the centered search overlay.
     {
@@ -1081,7 +1147,6 @@ impl Widget for WeatherRoot {
     }
 
     // Initial build + fetch.
-    *rebuild_slot.borrow_mut() = Some(rebuild.clone());
     rebuild();
     fetch_all(&shared);
 
