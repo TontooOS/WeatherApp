@@ -584,6 +584,7 @@ fn build_search_overlay(shared: &Shared, rebuild: Rc<dyn Fn()>) -> (gtk::Widget,
   {
     let hide = hide.clone();
     let close_g = gtk::GestureClick::new();
+    close_g.set_propagation_phase(gtk::PropagationPhase::Capture);
     close_g.connect_released(move |_, _, _, _| hide());
     close_gtk.add_controller(close_g);
   }
@@ -796,6 +797,7 @@ fn build_confirm_overlay(
   {
     let hide = hide.clone();
     let cancel = gtk::GestureClick::new();
+    cancel.set_propagation_phase(gtk::PropagationPhase::Capture);
     cancel.connect_released(move |_, _, _, _| hide());
     cancel_gtk.add_controller(cancel);
   }
@@ -805,6 +807,7 @@ fn build_confirm_overlay(
     let shared = shared.clone();
     let pending = pending.clone();
     let remove = gtk::GestureClick::new();
+    remove.set_propagation_phase(gtk::PropagationPhase::Capture);
     remove.connect_released(move |_, _, _, _| {
       if let Some((lat, lon)) = *pending.borrow() {
         let mut places = shared.places.borrow_mut();
@@ -1142,6 +1145,7 @@ impl Widget for WeatherRoot {
     // Add button opens the centered search overlay.
     {
       let click = gtk::GestureClick::new();
+      click.set_propagation_phase(gtk::PropagationPhase::Capture);
       click.connect_released(move |_, _, _, _| show_search());
       add_gtk.add_controller(click);
     }
