@@ -49,14 +49,21 @@ fn apply_class(widget: &impl IsA<gtk::Widget>, class: &str, rules: &str) {
 }
 
 fn label(text: &str, size: u32, weight: &str, color: &str) -> gtk::Label {
+  label_alpha(text, size, weight, color, 100)
+}
+
+/// Pango markup rejects `rgba()` colors, so transparency uses the `alpha`
+/// attribute (`0-100` percent) on a solid color instead.
+fn label_alpha(text: &str, size: u32, weight: &str, color: &str, alpha: u32) -> gtk::Label {
   let widget = gtk::Label::new(None);
   widget.set_use_markup(true);
   widget.set_markup(&format!(
-    "<span font_desc=\"{} {} {}\" foreground=\"{}\">{}</span>",
+    "<span font_desc=\"{} {} {}\" foreground=\"{}\" alpha=\"{}%\">{}</span>",
     SF_PRO,
     weight,
     size,
     color,
+    alpha.clamp(0, 100),
     glib::markup_escape_text(text),
   ));
   widget
@@ -207,7 +214,6 @@ fn refresh_rows(rows: &[RowH], shared: &Shared) {
 // ── detail handles ────────────────────────────────────────────────────
 
 struct DetailH {
-  bg: gtk::Box,
   bg_provider: gtk::CssProvider,
   city: gtk::Label,
   temp: gtk::Label,
@@ -371,7 +377,7 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
       icon_box.append(&prob);
     }
     row.append(&icon_box);
-    let min_label = label(&format!("{:.0}°", day.temp_min_c.round()), 14, "normal", "rgba(255,255,255,0.7)");
+    let min_label = label_alpha(&format!("{:.0}°", day.temp_min_c.round()), 14, "normal", "#FFFFFF", 70);
     min_label.set_size_request(40, -1);
     min_label.set_halign(gtk::Align::End);
     row.append(&min_label);
@@ -731,7 +737,7 @@ impl Widget for WeatherRoot {
     summary_card.append(&summary);
     bg.append(&summary_card);
 
-    let hourly_title = label(&lang::t("detail.hourly_title"), 11, "600", "rgba(255,255,255,0.7)");
+    let hourly_title = label_alpha(&lang::t("detail.hourly_title"), 11, "600", "#FFFFFF", 70);
     hourly_title.set_halign(gtk::Align::Start);
     hourly_title.set_margin_start(24);
     hourly_title.set_margin_top(10);
@@ -749,7 +755,7 @@ impl Widget for WeatherRoot {
     hourly_card.append(&hourly_scroll);
     bg.append(&hourly_card);
 
-    let daily_title = label(&lang::t("detail.daily_title"), 11, "600", "rgba(255,255,255,0.7)");
+    let daily_title = label_alpha(&lang::t("detail.daily_title"), 11, "600", "#FFFFFF", 70);
     daily_title.set_halign(gtk::Align::Start);
     daily_title.set_margin_start(24);
     daily_title.set_margin_top(10);
@@ -785,7 +791,6 @@ impl Widget for WeatherRoot {
     bg.append(&tiles);
 
     let detail = Rc::new(DetailH {
-      bg: bg.clone(),
       bg_provider: bg_provider.clone(),
       city,
       temp,

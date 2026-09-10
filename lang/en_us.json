@@ -1,5 +1,6 @@
 {
-  "lang": "en_us",`n  "name": "Weather",
+  "lang": "en_us",
+  "name": "Weather",
   "translations": {
     "app.title": "Weather",
     "app.name": "Weather",
