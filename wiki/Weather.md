@@ -1,22 +1,21 @@
 # Weather
 
 Weather recreates the macOS Weather layout with TontooUI and UIKit:
-sidebar with saved locations on the left, condition-driven detail in the
-center and a MapsKit map with precipitation legend on the right.
+sidebar with saved locations on the left and condition-driven detail
+on the right.
 
 ## Layout
 
-The root widget (`src/views.rs`, `WeatherRoot`) is a horizontal box:
+The root widget (`src/views.rs`, `WeatherRoot`) is a horizontal box.
+Default window size is `1280x720`.
 
 | Column | Width | Content |
 |---|---|---|
 | Sidebar | Fixed `260px` | Traffic lights, `+` add button, saved locations |
-| Detail | Flexible (half) | Header, summary, hourly, 10-day, tiles |
-| Map | Flexible (half) | MapsKit view, precipitation legend, zoom, temp pin |
+| Detail | Flexible | Header, summary, hourly, 10-day, tiles |
 
-Detail and map both expand, so they always split the remaining width
-equally. The app disables the UIKit window bar (`no_window_bar`), so
-the sidebar draws the only traffic lights.
+The app disables the UIKit window bar (`no_window_bar`), so the
+sidebar draws the only traffic lights.
 
 ```rust
 let mut app = App::with_delegate(lang::t("app.title"), 1120, 700, WeatherDelegate);
@@ -94,15 +93,6 @@ the `.app` bundle; the root `lang/` copies cover `cargo run`.
 ```json
 { "lang": "en_us", "translations": { "app.title": "Weather" } }
 ```
-
-## Map
-
-The right panel embeds `MapViewContent` with `MapStyle::Standard`
-(keyless OpenStreetMap tiles). The Dark and Light styles are served by
-CARTO, which now requires an API key, so they are not used. Overlays:
-precipitation legend (Extreme, Heavy, Moderate, Light), `+`/`-` zoom
-buttons and a centered temperature pin. Selection clears annotations,
-adds the place annotation and recenters.
 
 ## TBuild
 

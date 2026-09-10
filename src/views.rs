@@ -1,10 +1,10 @@
 //! Weather root view: macOS Weather-style layout.
 //!
 //! Left: TontooUI/UIKit sidebar (traffic lights + add button on top,
-//! saved locations with live temperature below). Center: detail with a
+//! saved locations with live temperature below). Right: detail with a
 //! background gradient that follows the current condition (clear, cloudy,
 //! rain, snow, thunderstorm, ...), hourly strip, 10-day forecast and
-//! detail tiles. Right: MapsKit map with precipitation legend.
+//! detail tiles.
 
 use crate::lang;
 use crate::store::{load_places, save_places, SavedPlace};
@@ -12,7 +12,6 @@ use crate::weather::{
   self, background_for, compass, condition_for, day_name, fmt_temp, hour_label, label_key,
   sf_symbol, Condition, FoundPlace, PlaceWeather,
 };
-use crate::MapsKit::{Annotation, Coordinate, MapsConfiguration, MapStyle, MapViewContent};
 use crate::TontooUI::Button;
 use crate::UIKit::prelude::*;
 use crate::UIKit::widget::{next_widget_id, WidgetId};
@@ -23,7 +22,6 @@ use std::rc::Rc;
 
 const SF_PRO: &str = "SF Pro Display";
 const SIDEBAR_W: i32 = 260;
-const MAP_MIN_W: i32 = 280;
 
 fn dark() -> bool {
   crate::UIKit::app::current_color_scheme()
@@ -218,9 +216,6 @@ struct DetailH {
   hourly: gtk::Box,
   daily: gtk::Box,
   tiles: gtk::Grid,
-  map: Rc<MapViewContent>,
-  zoom: Rc<RefCell<f64>>,
-  pin: gtk::Label,
 }
 
 fn tile(parent: &gtk::Grid, col: i32, row: i32, title: &str) -> (gtk::Label, gtk::Label) {
@@ -466,16 +461,6 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
   for (value_label, text) in values.iter().zip(tile_texts.iter()) {
     set_tile_value(value_label, text);
   }
-
-  // Map follows the selection.
-  let center = Coordinate::new(place.lat, place.lon);
-  detail.map.map_view().clear_annotations();
-  detail.map.map_view().add_annotation(Annotation::new(center, place.name.clone()));
-  detail.map.map_view().set_center(center, *detail.zoom.borrow());
-  detail.pin.set_markup(&format!(
-    "<span font_desc=\"{SF_PRO} 600 16\" foreground=\"#FFFFFF\">{}</span>",
-    glib::markup_escape_text(&fmt_temp(weather.current.temperature_c)),
-  ));
 }
 
 // ── search dialog ─────────────────────────────────────────────────────
@@ -797,74 +782,6 @@ impl Widget for WeatherRoot {
     }
     bg.append(&tiles);
 
-    // ── map panel (same size as detail: both expand equally) ──
-    let map_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    map_box.set_size_request(MAP_MIN_W, -1);
-    map_box.set_hexpand(true);
-    if dark() {
-      apply_class(&map_box, "wx-mapbox", "background-color: #1d1d1d;");
-    } else {
-      apply_class(&map_box, "wx-mapbox", "background-color: #ececec;");
-    }
-    let overlay = gtk::Overlay::new();
-    overlay.set_hexpand(true);
-    overlay.set_vexpand(true);
-    // Standard style uses keyless OpenStreetMap tiles. The Dark/Light
-    // styles are served by CARTO, which now requires an API key.
-    let mut cfg = MapsConfiguration::new();
-    cfg.style = MapStyle::Standard;
-    let map_content = Rc::new(MapViewContent::new(&cfg));
-    let map_widget: gtk::Widget = map_content.map_view().widget().clone().upcast();
-    map_widget.set_hexpand(true);
-    map_widget.set_vexpand(true);
-    overlay.set_child(Some(&map_widget));
-
-    let legend = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    legend.set_halign(gtk::Align::Start);
-    legend.set_valign(gtk::Align::Start);
-    legend.set_margin_top(12);
-    legend.set_margin_start(12);
-    apply_class(&legend, "wx-legend", "background-color: rgba(20,20,22,0.78); border-radius: 10px; padding: 10px;");
-    legend.append(&label(&lang::t("map.precipitation"), 12, "600", "#FFFFFF"));
-    for (text, color) in [
-      (lang::t("map.level_extreme"), "#FF3B5C"),
-      (lang::t("map.level_heavy"), "#D63BFF"),
-      (lang::t("map.level_moderate"), "#8E6BFF"),
-      (lang::t("map.level_light"), "#4DA3FF"),
-    ] {
-      let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-      let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-      dot.set_size_request(10, 10);
-      dot.set_valign(gtk::Align::Center);
-      apply_class(&dot, "wx-dot", &format!("background-color: {color}; border-radius: 5px;"));
-      row.append(&dot);
-      row.append(&label(&text, 12, "normal", "#FFFFFF"));
-      legend.append(&row);
-    }
-    overlay.add_overlay(&legend);
-
-    let zoom_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    zoom_box.set_halign(gtk::Align::End);
-    zoom_box.set_valign(gtk::Align::Start);
-    zoom_box.set_margin_top(12);
-    zoom_box.set_margin_end(12);
-    let zoom_in = Button::new("+").width(30.0);
-    let zoom_out = Button::new("-").width(30.0);
-    let zoom_in_gtk = zoom_in.to_gtk();
-    let zoom_out_gtk = zoom_out.to_gtk();
-    zoom_box.append(&zoom_in_gtk);
-    zoom_box.append(&zoom_out_gtk);
-    overlay.add_overlay(&zoom_box);
-
-    let pin = label("--°", 16, "600", "#FFFFFF");
-    pin.set_halign(gtk::Align::Center);
-    pin.set_valign(gtk::Align::Center);
-    apply_class(&pin, "wx-pin", "background-color: rgba(20,20,22,0.85); border-radius: 16px; padding: 6px 12px;");
-    overlay.add_overlay(&pin);
-
-    map_box.append(&overlay);
-    outer.append(&map_box);
-
     let detail = Rc::new(DetailH {
       bg: bg.clone(),
       bg_provider: bg_provider.clone(),
@@ -877,38 +794,7 @@ impl Widget for WeatherRoot {
       hourly,
       daily,
       tiles,
-      map: map_content.clone(),
-      zoom: Rc::new(RefCell::new(9.0)),
-      pin,
     });
-
-    // Zoom controls.
-    {
-      let detail = detail.clone();
-      let shared = shared.clone();
-      let click = gtk::GestureClick::new();
-      click.connect_released(move |_, _, _, _| {
-        let next = (*detail.zoom.borrow() + 1.0).min(16.0);
-        *detail.zoom.borrow_mut() = next;
-        if let Some(place) = shared.places.borrow().get(*shared.selected.borrow()).cloned() {
-          detail.map.map_view().set_center(Coordinate::new(place.lat, place.lon), next);
-        }
-      });
-      zoom_in_gtk.add_controller(click);
-    }
-    {
-      let detail = detail.clone();
-      let shared = shared.clone();
-      let click = gtk::GestureClick::new();
-      click.connect_released(move |_, _, _, _| {
-        let next = (*detail.zoom.borrow() - 1.0).max(2.0);
-        *detail.zoom.borrow_mut() = next;
-        if let Some(place) = shared.places.borrow().get(*shared.selected.borrow()).cloned() {
-          detail.map.map_view().set_center(Coordinate::new(place.lat, place.lon), next);
-        }
-      });
-      zoom_out_gtk.add_controller(click);
-    }
 
     // Sidebar rows.
     let rows: Rc<RefCell<Vec<RowH>>> = Rc::new(RefCell::new(Vec::new()));

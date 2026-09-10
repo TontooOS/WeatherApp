@@ -2,7 +2,7 @@
 
 Weather is the macOS Weather-style app for TontooOS. Sidebar with saved
 locations, detail with dynamic condition background, hourly strip, 10-day
-forecast, detail tiles and a MapsKit precipitation map.
+forecast and detail tiles.
 
 - Repository: https://github.com/TontooOS/MicroApps (Weather)
 - License: TCL v26.1
