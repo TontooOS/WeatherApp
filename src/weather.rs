@@ -418,6 +418,9 @@ pub fn search_places(query: &str) -> Vec<FoundPlace> {
 /// Render a CoreIcon SF Symbol glyph (transparent tile) to a temp PNG.
 /// White glyph in dark mode, near-black glyph in light mode for contrast.
 /// Returns the file path, or `None` when CoreIcon has no such symbol.
+///
+/// Heavy work: call only from worker threads, never from the UI thread.
+/// The UI uses [`weather_icon_path_cached`], which never renders.
 pub fn weather_icon_path(symbol: &str, display_px: u32, dark: bool) -> Option<String> {
   let sf = crate::CoreIcon::SFSymbol::from_name(symbol)?;
   let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -451,4 +454,22 @@ pub fn weather_icon_path(symbol: &str, display_px: u32, dark: bool) -> Option<St
     );
   canvas.save(&out_path).ok()?;
   Some(out_path.to_str()?.to_string())
+}
+
+/// Cache-only icon lookup for the UI thread: returns the file path when
+/// the PNG was already rendered by a worker, otherwise `None` (the row
+/// renders without an icon and fills it in on the next refresh).
+/// Never renders, never blocks.
+pub fn weather_icon_path_cached(symbol: &str, display_px: u32, dark: bool) -> Option<String> {
+  if crate::CoreIcon::SFSymbol::from_name(symbol).is_none() {
+    return None;
+  }
+  let px = display_px.clamp(8, 256);
+  let key = format!("wx_{}_{px}_{}", symbol.replace('.', "_"), if dark { "d" } else { "l" });
+  let out_path = std::env::temp_dir().join(format!("{key}.png"));
+  if out_path.exists() {
+    out_path.to_str().map(|s| s.to_string())
+  } else {
+    None
+  }
 }

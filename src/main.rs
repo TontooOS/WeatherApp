@@ -30,6 +30,10 @@ fn main() {
   app.no_window_bar();
   // Exact default size (bypasses content measure + monitor cap).
   app.force_size(1200, 675);
+  // Slight glass: translucent window + backdrop blur, the sidebar adds
+  // its own translucency on top for a frosted panel feel.
+  app.set_window_transparency(0.92);
+  app.set_window_blur(16.0);
   app.auto_color_scheme();
   app.run();
 }

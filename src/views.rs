@@ -360,7 +360,7 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     hour_label.set_halign(gtk::Align::Center);
     cell.append(&hour_label);
     let symbol = sf_symbol(condition_for(hour.weather_code, ""), weather.current.is_day);
-    if let Some(path) = weather::weather_icon_path(symbol, 28, dark()) {
+    if let Some(path) = weather::weather_icon_path_cached(symbol, 28, dark()) {
       let image = gtk::Image::from_file(&path);
       image.set_pixel_size(28);
       image.set_halign(gtk::Align::Center);
@@ -397,7 +397,7 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     let icon_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     icon_box.set_size_request(44, -1);
     let symbol = sf_symbol(condition_for(day.weather_code, ""), true);
-    if let Some(path) = weather::weather_icon_path(symbol, 20, dark()) {
+    if let Some(path) = weather::weather_icon_path_cached(symbol, 20, dark()) {
       let image = gtk::Image::from_file(&path);
       image.set_pixel_size(20);
       image.set_halign(gtk::Align::Center);
@@ -870,14 +870,14 @@ impl Widget for WeatherRoot {
     outer.set_hexpand(true);
     outer.set_vexpand(true);
 
-    // ── sidebar (fixed width, never expands) ──
+    // ── sidebar (fixed width, never expands, slightly translucent) ──
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar.set_size_request(SIDEBAR_W, -1);
     sidebar.set_hexpand(false);
     if dark() {
-      apply_class(&sidebar, "wx-sidebar", "background-color: #1d1d1d;");
+      apply_class(&sidebar, "wx-sidebar", "background-color: rgba(29,29,29,0.78);");
     } else {
-      apply_class(&sidebar, "wx-sidebar", "background-color: #ececec;");
+      apply_class(&sidebar, "wx-sidebar", "background-color: rgba(236,236,236,0.78);");
     }
 
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 0);
