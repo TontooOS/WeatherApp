@@ -505,55 +505,109 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
 
 // ── search dialog ─────────────────────────────────────────────────────
 
-fn open_search(
-  shared: Shared,
-  tx: std::sync::mpsc::Sender<Msg>,
-  rebuild: Rc<dyn Fn()>,
-) {
-  let window = gtk::Window::new();
-  window.set_title(Some(&lang::t("search.title")));
-  window.set_default_size(380, 460);
-  window.set_modal(true);
-  apply_class(&window, "wx-dialog", "background-color: #1d1d1d; border-radius: 12px;");
+/// Centered search overlay in the middle of the app: text input on top
+/// (city name or postal code), matching places as text rows below.
+/// Clicking a row adds it to the sidebar. Returns the overlay widget
+/// plus a `show` callback for the `+` button.
+fn build_search_overlay(shared: &Shared, rebuild: Rc<dyn Fn()>) -> (gtk::Widget, Rc<dyn Fn()>) {
+  let shared = shared.clone();
 
-  let outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
-  outer.set_margin_top(16);
-  outer.set_margin_bottom(16);
-  outer.set_margin_start(16);
-  outer.set_margin_end(16);
+  let layer = gtk::Overlay::new();
+  layer.set_hexpand(true);
+  layer.set_vexpand(true);
+  layer.set_visible(false);
+
+  let dim = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+  dim.set_hexpand(true);
+  dim.set_vexpand(true);
+  dim.set_halign(gtk::Align::Fill);
+  dim.set_valign(gtk::Align::Fill);
+  apply_class(&dim, "wx-dim", "background-color: rgba(0,0,0,0.45);");
+  layer.set_child(Some(&dim));
+
+  let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+  card.set_size_request(430, -1);
+  card.set_halign(gtk::Align::Center);
+  card.set_valign(gtk::Align::Center);
+  if dark() {
+    apply_class(&card, "wx-searchcard", "background-color: #2C2C2E; border-radius: 14px; padding: 16px;");
+  } else {
+    apply_class(&card, "wx-searchcard", "background-color: #FFFFFF; border-radius: 14px; padding: 16px;");
+  }
+  layer.add_overlay(&card);
+
+  let title = label(&lang::t("search.title"), 15, "600", pal().0);
+  title.set_halign(gtk::Align::Start);
+  card.append(&title);
 
   let entry = gtk::SearchEntry::new();
   entry.set_placeholder_text(Some(&lang::t("search.placeholder")));
-  outer.append(&entry);
+  card.append(&entry);
   let hint = label(&lang::t("search.hint"), 12, "normal", pal().1);
   hint.set_halign(gtk::Align::Start);
-  outer.append(&hint);
+  card.append(&hint);
 
   let results = gtk::ListBox::new();
   results.set_selection_mode(gtk::SelectionMode::None);
+  apply_class(&results, "wx-results", "background-color: transparent;");
   let scroll = gtk::ScrolledWindow::new();
   scroll.set_child(Some(&results));
+  scroll.set_min_content_height(220);
   scroll.set_vexpand(true);
-  outer.append(&scroll);
+  card.append(&scroll);
 
   let close_button = Button::new(lang::t("search.close"));
   let close_gtk = close_button.to_gtk();
-  let window_close = window.clone();
-  let close_g = gtk::GestureClick::new();
-  close_g.connect_released(move |_, _, _, _| window_close.close());
-  close_gtk.add_controller(close_g);
-  outer.append(&close_gtk);
+  card.append(&close_gtk);
 
-  window.set_child(Some(&outer));
-  window.present();
+  let hide = {
+    let layer = layer.clone();
+    Rc::new(move || layer.set_visible(false))
+  };
+  let show = {
+    let layer = layer.clone();
+    let entry = entry.clone();
+    Rc::new(move || {
+      layer.set_visible(true);
+      entry.grab_focus();
+    })
+  };
 
+  // Click on the dim area closes the overlay.
+  {
+    let hide = hide.clone();
+    let dismiss = gtk::GestureClick::new();
+    dismiss.connect_released(move |_, _, _, _| hide());
+    dim.add_controller(dismiss);
+  }
+  // Close button closes the overlay.
+  {
+    let hide = hide.clone();
+    let close_g = gtk::GestureClick::new();
+    close_g.connect_released(move |_, _, _, _| hide());
+    close_gtk.add_controller(close_g);
+  }
+  // Escape closes the overlay.
+  {
+    let hide = hide.clone();
+    let esc = gtk::EventControllerKey::new();
+    esc.connect_key_pressed(move |_, key, _, _| {
+      if key == gtk::gdk::Key::Escape {
+        hide();
+        glib::Propagation::Stop
+      } else {
+        glib::Propagation::Proceed
+      }
+    });
+    card.add_controller(esc);
+  }
+
+  // Debounced search: typing waits 450ms, Enter searches immediately.
   let seq = Rc::new(RefCell::new(0u64));
-  let search_state: Rc<RefCell<Vec<FoundPlace>>> = Rc::new(RefCell::new(Vec::new()));
-  entry.connect_search_changed({
+  let run_search = {
     let seq = seq.clone();
-    let tx = tx.clone();
-    move |input| {
-      let query = input.text().to_string();
+    let tx = shared.tx.clone();
+    Rc::new(move |query: String, delay_ms: u64| {
       *seq.borrow_mut() += 1;
       let current = *seq.borrow();
       if query.trim().len() < 2 {
@@ -562,23 +616,30 @@ fn open_search(
       }
       let tx = tx.clone();
       std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(450));
+        if delay_ms > 0 {
+          std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
         let found = weather::search_places(&query);
         let _ = tx.send(Msg::Search(current, found));
       });
-    }
+    })
+  };
+  entry.connect_search_changed({
+    let run_search = run_search.clone();
+    move |input| run_search(input.text().to_string(), 450)
+  });
+  entry.connect_activate({
+    let run_search = run_search.clone();
+    move |input| run_search(input.text().to_string(), 0)
   });
 
-  // Poll for search results on the main thread. Results are forwarded
-  // by the shared poll loop via the sink registry below.
+  // Results are forwarded by the shared poll loop via the sink registry.
   let results_poll = results.clone();
-  let state_poll = search_state.clone();
   let shared_poll = shared.clone();
   let rebuild_poll = rebuild.clone();
-  let window_poll = window.clone();
+  let hide_poll = hide.clone();
   SEARCH_SINK.with(|sink| {
     *sink.borrow_mut() = Some(Box::new(move |found: Vec<FoundPlace>| {
-      *state_poll.borrow_mut() = found.clone();
       while let Some(child) = results_poll.first_child() {
         results_poll.remove(&child);
       }
@@ -594,12 +655,11 @@ fn open_search(
         row.set_margin_bottom(8);
         row.set_margin_start(8);
         row.set_margin_end(8);
-        let name = label(&place.name, 14, "600", pal().0);
+        let name = label(&format!("{}, {}", place.name, place.country), 14, "600", pal().0);
         name.set_hexpand(true);
         name.set_halign(gtk::Align::Start);
+        name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         row.append(&name);
-        let country = label(&place.country, 12, "normal", pal().1);
-        row.append(&country);
         let add = label(&lang::t("search.add"), 13, "600", "#0A84FF");
         row.append(&add);
         results_poll.append(&row);
@@ -607,7 +667,7 @@ fn open_search(
         click.set_button(1);
         let shared = shared_poll.clone();
         let rebuild = rebuild_poll.clone();
-        let window = window_poll.clone();
+        let hide = hide_poll.clone();
         let found_place = place.clone();
         click.connect_released(move |_, _, _, _| {
           // Dedupe: select the existing entry instead of adding twice.
@@ -631,18 +691,81 @@ fn open_search(
           };
           *shared.selected.borrow_mut() = select_index;
           rebuild();
-          window.close();
+          hide();
         });
         row.add_controller(click);
       }
     }));
   });
-  window.connect_close_request(|_| {
-    SEARCH_SINK.with(|sink| {
-      *sink.borrow_mut() = None;
+
+  (layer.upcast(), show)
+}
+
+/// Confirm dialog for removing a sidebar location.
+fn open_confirm_delete(shared: &Shared, rebuild: &Rc<dyn Fn()>, lat: f64, lon: f64, name: &str) {
+  let window = gtk::Window::new();
+  window.set_title(Some(&lang::t("delete.title")));
+  window.set_default_size(340, 160);
+  window.set_modal(true);
+  if dark() {
+    apply_class(&window, "wx-confirm", "background-color: #2C2C2E; border-radius: 12px;");
+  } else {
+    apply_class(&window, "wx-confirm", "background-color: #FFFFFF; border-radius: 12px;");
+  }
+
+  let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
+  outer.set_margin_top(16);
+  outer.set_margin_bottom(16);
+  outer.set_margin_start(16);
+  outer.set_margin_end(16);
+
+  let message = label(&lang::t("delete.message").replace("%name%", name), 14, "normal", pal().0);
+  message.set_wrap(true);
+  message.set_halign(gtk::Align::Start);
+  outer.append(&message);
+
+  let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  buttons.set_halign(gtk::Align::End);
+  let cancel_gtk = Button::new(lang::t("delete.cancel")).to_gtk();
+  let remove_gtk = Button::new(lang::t("delete.remove")).to_gtk();
+  buttons.append(&cancel_gtk);
+  buttons.append(&remove_gtk);
+  outer.append(&buttons);
+
+  window.set_child(Some(&outer));
+  window.present();
+
+  {
+    let window = window.clone();
+    let cancel = gtk::GestureClick::new();
+    cancel.connect_released(move |_, _, _, _| window.close());
+    cancel_gtk.add_controller(cancel);
+  }
+  {
+    let window = window.clone();
+    let shared = shared.clone();
+    let rebuild = rebuild.clone();
+    let remove = gtk::GestureClick::new();
+    remove.connect_released(move |_, _, _, _| {
+      let mut places = shared.places.borrow_mut();
+      if places.len() > 1 {
+        if let Some(index) = places
+          .iter()
+          .position(|p| (p.lat - lat).abs() < 0.0001 && (p.lon - lon).abs() < 0.0001)
+        {
+          places.remove(index);
+          drop(places);
+          shared.data.borrow_mut().remove(index);
+          let selected = (*shared.selected.borrow()).min(shared.places.borrow().len() - 1);
+          *shared.selected.borrow_mut() = selected;
+          save_places(&shared.places.borrow());
+          rebuild();
+        }
+      }
+      window.close();
     });
-    glib::Propagation::Proceed
-  });
+    remove_gtk.add_controller(remove);
+  }
 }
 
 thread_local! {
@@ -908,19 +1031,30 @@ impl Widget for WeatherRoot {
           delete.set_button(3);
           let shared = shared.clone();
           let rebuild_slot = rebuild_slot.clone();
-          delete.connect_released(move |_, _, _, _| {
-            let mut places = shared.places.borrow_mut();
-            if places.len() > 1 {
-              places.remove(index);
-              drop(places);
-              shared.data.borrow_mut().remove(index);
-              let selected = (*shared.selected.borrow()).min(shared.places.borrow().len() - 1);
-              *shared.selected.borrow_mut() = selected;
-              save_places(&shared.places.borrow());
-              if let Some(rebuild) = rebuild_slot.borrow().as_ref().cloned() {
-                rebuild();
-              }
+          let row_menu = row.clone();
+          delete.connect_released(move |_, _, x, y| {
+            if shared.places.borrow().len() <= 1 {
+              return;
             }
+            let Some(place) = shared.places.borrow().get(index).cloned() else { return };
+            let pop = gtk::Popover::new();
+            pop.set_parent(&row_menu);
+            let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let item = gtk::Button::with_label(&lang::t("sidebar.delete"));
+            menu_box.append(&item);
+            pop.set_child(Some(&menu_box));
+            pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 4, 4)));
+            let pop_c = pop.clone();
+            let shared = shared.clone();
+            let rebuild_slot = rebuild_slot.clone();
+            let (lat, lon, name) = (place.lat, place.lon, place.name.clone());
+            item.connect_clicked(move |_| {
+              pop_c.popdown();
+              if let Some(rebuild) = rebuild_slot.borrow().as_ref().cloned() {
+                open_confirm_delete(&shared, &rebuild, lat, lon, &name);
+              }
+            });
+            pop.popup();
           });
           row.add_controller(delete);
         }
@@ -933,15 +1067,16 @@ impl Widget for WeatherRoot {
       })
     };
 
-    // Add button opens the search dialog.
+    // Search overlay centered over the whole app.
+    let root = gtk::Overlay::new();
+    root.set_child(Some(&outer));
+    let (search_layer, show_search) = build_search_overlay(&shared, rebuild.clone());
+    root.add_overlay(&search_layer);
+
+    // Add button opens the centered search overlay.
     {
-      let shared = shared.clone();
-      let tx = tx.clone();
-      let rebuild = rebuild.clone();
       let click = gtk::GestureClick::new();
-      click.connect_released(move |_, _, _, _| {
-        open_search(shared.clone(), tx.clone(), rebuild.clone());
-      });
+      click.connect_released(move |_, _, _, _| show_search());
       add_gtk.add_controller(click);
     }
 
@@ -1013,7 +1148,7 @@ impl Widget for WeatherRoot {
       glib::ControlFlow::Continue
     });
 
-    outer.upcast()
+    root.upcast()
   }
 }
 

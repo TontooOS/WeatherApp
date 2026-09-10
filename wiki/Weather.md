@@ -30,10 +30,14 @@ in the top row, next to the traffic lights where macOS leaves space.
 Below, one row per saved location shows the name, current time plus
 condition, live temperature and the daily high/low.
 
-- Left click selects the location and refreshes detail and map.
-- Right click removes the location (at least one location is kept).
-- The `+` button opens the search dialog (`WeatherKit::search_places`);
-  picking a result appends it and persists via `store::save_places`.
+- Left click selects the location and refreshes the detail view.
+- Right click opens a context menu with a delete option; confirming in
+  the dialog removes the location (at least one location is kept).
+- The `+` button opens a centered search overlay: a text input for city
+  names or postal codes with matching places as text rows below.
+  Clicking a row adds it and persists via `store::save_places`.
+  `WeatherKit::search_places` resolves names and postal codes
+  (Open-Meteo geocoding first, Nominatim second).
 
 ## Conditions and Backgrounds
 
