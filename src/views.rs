@@ -152,10 +152,8 @@ fn paint_selection(rows: &[RowH], selected: usize) {
         "wx-sel",
         "background-color: rgba(10,132,255,0.85); border-radius: 10px;",
       );
-      handle.row.add_css_class("wx-sel-on");
     } else {
       handle.row.remove_css_class("wx-sel");
-      handle.row.remove_css_class("wx-sel-on");
     }
   }
 }
@@ -163,9 +161,13 @@ fn paint_selection(rows: &[RowH], selected: usize) {
 fn refresh_rows(rows: &[RowH], shared: &Shared) {
   let places = shared.places.borrow();
   let data = shared.data.borrow();
+  let selected = *shared.selected.borrow();
   let time = local_time();
   for (index, handle) in rows.iter().enumerate() {
     let Some(place) = places.get(index) else { continue };
+    let is_selected = index == selected;
+    let fg = if is_selected { "#FFFFFF" } else { pal().0 };
+    let secondary = if is_selected { "#FFFFFF" } else { pal().1 };
     let cond_text = match data.get(index).and_then(|d| d.as_ref()) {
       Some(weather) => {
         let cond = condition_for(weather.current.weather_code, &weather.current.condition);
@@ -176,7 +178,7 @@ fn refresh_rows(rows: &[RowH], shared: &Shared) {
     handle.sub.set_markup(&format!(
       "<span font_desc=\"{} normal 11\" foreground=\"{}\">{}</span>",
       SF_PRO,
-      if handle.row.has_css_class("wx-sel-on") { "#FFFFFF" } else { pal().1 },
+      secondary,
       glib::markup_escape_text(&format!("{time}  {cond_text}")),
     ));
     let temp_text = match data.get(index).and_then(|d| d.as_ref()) {
@@ -186,7 +188,7 @@ fn refresh_rows(rows: &[RowH], shared: &Shared) {
     handle.temp.set_markup(&format!(
       "<span font_desc=\"{} 300 24\" foreground=\"{}\">{}</span>",
       SF_PRO,
-      if handle.row.has_css_class("wx-sel-on") { "#FFFFFF" } else { pal().0 },
+      fg,
       glib::markup_escape_text(&temp_text),
     ));
     let hilo_text = match data.get(index).and_then(|d| d.as_ref()).and_then(|w| w.daily.first()) {
@@ -196,7 +198,7 @@ fn refresh_rows(rows: &[RowH], shared: &Shared) {
     handle.hilo.set_markup(&format!(
       "<span font_desc=\"{} normal 11\" foreground=\"{}\">{}</span>",
       SF_PRO,
-      if handle.row.has_css_class("wx-sel-on") { "#FFFFFF" } else { pal().1 },
+      secondary,
       glib::markup_escape_text(&hilo_text),
     ));
   }
@@ -838,10 +840,14 @@ impl Widget for WeatherRoot {
           left.set_hexpand(true);
           let name = label(&place.name, 13, "600", pal().0);
           name.set_halign(gtk::Align::Start);
+          name.set_hexpand(true);
           name.set_ellipsize(gtk::pango::EllipsizeMode::End);
           left.append(&name);
           let sub = label("", 11, "normal", pal().1);
           sub.set_halign(gtk::Align::Start);
+          sub.set_hexpand(true);
+          sub.set_ellipsize(gtk::pango::EllipsizeMode::End);
+          sub.set_max_width_chars(24);
           left.append(&sub);
           row.append(&left);
           let right = gtk::Box::new(gtk::Orientation::Vertical, 1);

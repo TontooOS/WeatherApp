@@ -107,6 +107,10 @@ pub fn init() {
   } else {
     "en_us".to_string()
   };
+  eprintln!(
+    "weather: locale={detected} langs={:?}",
+    files.iter().map(|f| f.lang.clone()).collect::<Vec<_>>(),
+  );
   let _ = LOCALE.set(detected);
   let _ = LangStore::init(files, Some(fallback));
   let _ = READY.set(());
