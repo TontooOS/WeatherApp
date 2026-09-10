@@ -1065,6 +1065,7 @@ impl Widget for WeatherRoot {
           row.set_margin_end(8);
           let left = gtk::Box::new(gtk::Orientation::Vertical, 1);
           left.set_hexpand(true);
+          left.set_margin_start(6);
           let name = label(&place.name, 13, "600", pal().0);
           name.set_halign(gtk::Align::Start);
           name.set_hexpand(true);
@@ -1078,6 +1079,7 @@ impl Widget for WeatherRoot {
           left.append(&sub);
           row.append(&left);
           let right = gtk::Box::new(gtk::Orientation::Vertical, 1);
+          right.set_margin_end(6);
           let temp_label = label("--°", 24, "300", pal().0);
           temp_label.set_halign(gtk::Align::End);
           right.append(&temp_label);
