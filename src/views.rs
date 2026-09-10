@@ -664,7 +664,7 @@ impl Widget for WeatherRoot {
     top.set_margin_start(14);
     top.set_margin_end(10);
     top.set_margin_bottom(6);
-    let lights = crate::UIKit::widgets::TrafficLights::new().at(0.0, 0.0).size(13.0);
+    let lights = crate::UIKit::widgets::TrafficLights::new().at(0.0, 0.0).size(18.0);
     top.append(&lights.to_gtk());
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
