@@ -45,6 +45,9 @@ pub fn locale() -> String {
 /// `lang/` folder covers `cargo run` from the repository directory.
 fn lang_dirs() -> Vec<PathBuf> {
   let mut dirs = Vec::new();
+  // Compile-time project dir: reliable for dev runs regardless of cwd.
+  dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Resources").join("lang"));
+  dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lang"));
   if let Ok(cwd) = std::env::current_dir() {
     dirs.push(cwd.join("Resources").join("lang"));
     dirs.push(cwd.join("lang"));

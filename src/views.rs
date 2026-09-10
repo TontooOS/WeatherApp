@@ -22,8 +22,8 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 const SF_PRO: &str = "SF Pro Display";
-const SIDEBAR_W: i32 = 232;
-const MAP_W: i32 = 320;
+const SIDEBAR_W: i32 = 260;
+const MAP_MIN_W: i32 = 280;
 
 fn dark() -> bool {
   crate::UIKit::app::current_color_scheme()
@@ -585,16 +585,26 @@ fn open_search(
         let window = window_poll.clone();
         let found_place = place.clone();
         click.connect_released(move |_, _, _, _| {
-          let select_index = shared.places.borrow().len();
-          shared.places.borrow_mut().push(SavedPlace::new(
-            found_place.name.clone(),
-            found_place.country.clone(),
-            found_place.lat,
-            found_place.lon,
-          ));
-          shared.data.borrow_mut().push(None);
+          // Dedupe: select the existing entry instead of adding twice.
+          let existing = shared.places.borrow().iter().position(|p| {
+            (p.lat - found_place.lat).abs() < 0.05 && (p.lon - found_place.lon).abs() < 0.05
+          });
+          let select_index = match existing {
+            Some(index) => index,
+            None => {
+              let index = shared.places.borrow().len();
+              shared.places.borrow_mut().push(SavedPlace::new(
+                found_place.name.clone(),
+                found_place.country.clone(),
+                found_place.lat,
+                found_place.lon,
+              ));
+              shared.data.borrow_mut().push(None);
+              save_places(&shared.places.borrow());
+              index
+            }
+          };
           *shared.selected.borrow_mut() = select_index;
-          save_places(&shared.places.borrow());
           rebuild();
           window.close();
         });
@@ -646,9 +656,10 @@ impl Widget for WeatherRoot {
     outer.set_hexpand(true);
     outer.set_vexpand(true);
 
-    // ── sidebar ──
+    // ── sidebar (fixed width, never expands) ──
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar.set_size_request(SIDEBAR_W, -1);
+    sidebar.set_hexpand(false);
     if dark() {
       apply_class(&sidebar, "wx-sidebar", "background-color: #1d1d1d;");
     } else {
@@ -786,9 +797,10 @@ impl Widget for WeatherRoot {
     }
     bg.append(&tiles);
 
-    // ── map panel ──
+    // ── map panel (same size as detail: both expand equally) ──
     let map_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    map_box.set_size_request(MAP_W, -1);
+    map_box.set_size_request(MAP_MIN_W, -1);
+    map_box.set_hexpand(true);
     if dark() {
       apply_class(&map_box, "wx-mapbox", "background-color: #1d1d1d;");
     } else {
@@ -797,8 +809,10 @@ impl Widget for WeatherRoot {
     let overlay = gtk::Overlay::new();
     overlay.set_hexpand(true);
     overlay.set_vexpand(true);
+    // Standard style uses keyless OpenStreetMap tiles. The Dark/Light
+    // styles are served by CARTO, which now requires an API key.
     let mut cfg = MapsConfiguration::new();
-    cfg.style = if dark() { MapStyle::Dark } else { MapStyle::Light };
+    cfg.style = MapStyle::Standard;
     let map_content = Rc::new(MapViewContent::new(&cfg));
     let map_widget: gtk::Widget = map_content.map_view().widget().clone().upcast();
     map_widget.set_hexpand(true);

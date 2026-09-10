@@ -10,9 +10,13 @@ The root widget (`src/views.rs`, `WeatherRoot`) is a horizontal box:
 
 | Column | Width | Content |
 |---|---|---|
-| Sidebar | `232px` | Traffic lights, `+` add button, saved locations |
-| Detail | Flexible | Header, summary, hourly, 10-day, tiles |
-| Map | `320px` | MapsKit view, precipitation legend, zoom, temp pin |
+| Sidebar | Fixed `260px` | Traffic lights, `+` add button, saved locations |
+| Detail | Flexible (half) | Header, summary, hourly, 10-day, tiles |
+| Map | Flexible (half) | MapsKit view, precipitation legend, zoom, temp pin |
+
+Detail and map both expand, so they always split the remaining width
+equally. The app disables the UIKit window bar (`no_window_bar`), so
+the sidebar draws the only traffic lights.
 
 ```rust
 let mut app = App::with_delegate(lang::t("app.title"), 1120, 700, WeatherDelegate);
@@ -93,11 +97,12 @@ the `.app` bundle; the root `lang/` copies cover `cargo run`.
 
 ## Map
 
-The right panel embeds `MapViewContent` with `MapStyle::Dark` or
-`MapStyle::Light` following the system scheme. Overlays: precipitation
-legend (Extreme, Heavy, Moderate, Light), `+`/`-` zoom buttons and a
-centered temperature pin. Selection clears annotations, adds the place
-annotation and recenters.
+The right panel embeds `MapViewContent` with `MapStyle::Standard`
+(keyless OpenStreetMap tiles). The Dark and Light styles are served by
+CARTO, which now requires an API key, so they are not used. Overlays:
+precipitation legend (Extreme, Heavy, Moderate, Light), `+`/`-` zoom
+buttons and a centered temperature pin. Selection clears annotations,
+adds the place annotation and recenters.
 
 ## TBuild
 

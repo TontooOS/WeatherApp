@@ -26,6 +26,8 @@ impl AppDelegate for WeatherDelegate {
 fn main() {
   lang::init();
   let mut app = App::with_delegate(lang::t("app.title"), 1120, 700, WeatherDelegate);
+  // No extra window bar: the sidebar draws the only traffic lights.
+  app.no_window_bar();
   app.auto_color_scheme();
   app.run();
 }
