@@ -869,6 +869,11 @@ impl Widget for WeatherRoot {
     let outer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     outer.set_hexpand(true);
     outer.set_vexpand(true);
+    if dark() {
+      apply_class(&outer, "wx-outer", "background-color: #1d1d1d;");
+    } else {
+      apply_class(&outer, "wx-outer", "background-color: #ececec;");
+    }
 
     // ── sidebar (fixed width, never expands, slightly translucent) ──
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1151,6 +1156,8 @@ impl Widget for WeatherRoot {
 
     // Search overlay centered over the whole app.
     let root = gtk::Overlay::new();
+    root.set_hexpand(true);
+    root.set_vexpand(true);
     root.set_child(Some(&outer));
     let (search_layer, show_search) = build_search_overlay(&shared, rebuild.clone());
     root.add_overlay(&search_layer);

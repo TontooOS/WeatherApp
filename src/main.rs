@@ -28,6 +28,9 @@ fn main() {
   let mut app = App::with_delegate(lang::t("app.title"), 1200, 675, WeatherDelegate);
   // No extra window bar: the sidebar draws the only traffic lights.
   app.no_window_bar();
+  // No outer UIKit scroll wrapper: our root fills the window directly
+  // (inner lists scroll themselves), so no theme background shows through.
+  app.no_scroll();
   // Exact default size (bypasses content measure + monitor cap).
   app.force_size(1200, 675);
   // Slight glass: translucent window + backdrop blur, the sidebar adds
