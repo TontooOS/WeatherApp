@@ -37,6 +37,31 @@ fn pal() -> (&'static str, &'static str) {
   }
 }
 
+/// Text on the detail gradient: white in dark mode, near-black in light.
+fn dtext() -> &'static str {
+  if dark() {
+    "#FFFFFF"
+  } else {
+    "#1E1E1E"
+  }
+}
+
+fn precip_blue() -> &'static str {
+  if dark() {
+    "#7DD3FC"
+  } else {
+    "#0277BD"
+  }
+}
+
+fn offline_color() -> &'static str {
+  if dark() {
+    "#FFD60A"
+  } else {
+    "#B26A00"
+  }
+}
+
 fn apply_class(widget: &impl IsA<gtk::Widget>, class: &str, rules: &str) {
   let provider = gtk::CssProvider::new();
   provider.load_from_string(&format!(".{class} {{ {rules} }}"));
@@ -269,14 +294,15 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
   drop(data);
 
   detail.city.set_markup(&format!(
-    "<span font_desc=\"{} 600 28\" foreground=\"#FFFFFF\">{}</span>",
+    "<span font_desc=\"{} 600 28\" foreground=\"{}\">{}</span>",
     SF_PRO,
+    dtext(),
     glib::markup_escape_text(&place.name),
   ));
 
   let Some(weather) = weather else {
-    detail.temp.set_markup(&format!("<span font_desc=\"{SF_PRO} 100 72\" foreground=\"#FFFFFF\">--°</span>"));
-    detail.cond.set_markup(&format!("<span font_desc=\"{SF_PRO} normal 17\" foreground=\"#FFFFFF\">...</span>"));
+    detail.temp.set_markup(&format!("<span font_desc=\"{SF_PRO} 100 72\" foreground=\"{}\">--°</span>", dtext()));
+    detail.cond.set_markup(&format!("<span font_desc=\"{SF_PRO} normal 17\" foreground=\"{}\">...</span>", dtext()));
     return;
   };
 
@@ -285,11 +311,13 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
   let cond_text = lang::t(label_key(cond));
 
   detail.temp.set_markup(&format!(
-    "<span font_desc=\"{SF_PRO} 100 72\" foreground=\"#FFFFFF\">{}</span>",
+    "<span font_desc=\"{SF_PRO} 100 72\" foreground=\"{}\">{}</span>",
+    dtext(),
     glib::markup_escape_text(&fmt_temp(weather.current.temperature_c)),
   ));
   detail.cond.set_markup(&format!(
-    "<span font_desc=\"{SF_PRO} normal 17\" foreground=\"#FFFFFF\">{}</span>",
+    "<span font_desc=\"{SF_PRO} normal 17\" foreground=\"{}\">{}</span>",
+    dtext(),
     glib::markup_escape_text(&cond_text),
   ));
 
@@ -298,13 +326,15 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     None => ("--°".to_string(), "--°".to_string()),
   };
   detail.hilo.set_markup(&format!(
-    "<span font_desc=\"{SF_PRO} normal 15\" foreground=\"#FFFFFF\">H:{hi}  L:{lo}</span>"
+    "<span font_desc=\"{SF_PRO} normal 15\" foreground=\"{}\">H:{hi}  L:{lo}</span>",
+    dtext()
   ));
   detail.offline.set_visible(weather.offline);
 
   let gusts = weather.current.wind_gusts_kmh.unwrap_or(weather.current.wind_kmh);
   detail.summary.set_markup(&format!(
-    "<span font_desc=\"{SF_PRO} normal 13\" foreground=\"#FFFFFF\">{}  {} {} {:.0} {}</span>",
+    "<span font_desc=\"{SF_PRO} normal 13\" foreground=\"{}\">{}  {} {} {:.0} {}</span>",
+    dtext(),
     glib::markup_escape_text(&cond_text),
     glib::markup_escape_text(&lang::t("detail.summary_wind")),
     "",
@@ -324,11 +354,11 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     } else {
       hour_label(&hour.time)
     };
-    let hour_label = label(&title, 12, "600", "#FFFFFF");
+    let hour_label = label(&title, 12, "600", dtext());
     hour_label.set_halign(gtk::Align::Center);
     cell.append(&hour_label);
     let symbol = sf_symbol(condition_for(hour.weather_code, ""), weather.current.is_day);
-    if let Some(path) = weather::weather_icon_path(symbol, 28) {
+    if let Some(path) = weather::weather_icon_path(symbol, 28, dark()) {
       let image = gtk::Image::from_file(&path);
       image.set_pixel_size(28);
       image.set_halign(gtk::Align::Center);
@@ -336,10 +366,10 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     }
     let prob = hour.precip_probability_pct.unwrap_or(0);
     let prob_text = if prob >= 20 { format!("{prob}%") } else { String::new() };
-    let prob_label = label(&prob_text, 11, "600", "#7DD3FC");
+    let prob_label = label(&prob_text, 11, "600", precip_blue());
     prob_label.set_halign(gtk::Align::Center);
     cell.append(&prob_label);
-    let temp_label = label(&fmt_temp(hour.temperature_c), 15, "600", "#FFFFFF");
+    let temp_label = label(&fmt_temp(hour.temperature_c), 15, "600", dtext());
     temp_label.set_halign(gtk::Align::Center);
     cell.append(&temp_label);
     detail.hourly.append(&cell);
@@ -358,26 +388,26 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     row.set_margin_end(12);
     row.set_margin_top(7);
     row.set_margin_bottom(7);
-    let name = label(&day_name(&day.date, index), 14, "normal", "#FFFFFF");
+    let name = label(&day_name(&day.date, index), 14, "normal", dtext());
     name.set_size_request(64, -1);
     name.set_halign(gtk::Align::Start);
     row.append(&name);
     let icon_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     icon_box.set_size_request(44, -1);
     let symbol = sf_symbol(condition_for(day.weather_code, ""), true);
-    if let Some(path) = weather::weather_icon_path(symbol, 20) {
+    if let Some(path) = weather::weather_icon_path(symbol, 20, dark()) {
       let image = gtk::Image::from_file(&path);
       image.set_pixel_size(20);
       image.set_halign(gtk::Align::Center);
       icon_box.append(&image);
     }
     if day.precip_probability_pct.unwrap_or(0) >= 20 {
-      let prob = label(&format!("{}%", day.precip_probability_pct.unwrap_or(0)), 10, "600", "#7DD3FC");
+      let prob = label(&format!("{}%", day.precip_probability_pct.unwrap_or(0)), 10, "600", precip_blue());
       prob.set_halign(gtk::Align::Center);
       icon_box.append(&prob);
     }
     row.append(&icon_box);
-    let min_label = label_alpha(&format!("{:.0}°", day.temp_min_c.round()), 14, "normal", "#FFFFFF", 70);
+    let min_label = label_alpha(&format!("{:.0}°", day.temp_min_c.round()), 14, "normal", dtext(), 70);
     min_label.set_size_request(40, -1);
     min_label.set_halign(gtk::Align::End);
     row.append(&min_label);
@@ -400,7 +430,7 @@ fn refresh_detail(detail: &DetailH, shared: &Shared) {
     );
     track.append(&fill);
     row.append(&track);
-    let max_label = label(&format!("{:.0}°", day.temp_max_c.round()), 14, "600", "#FFFFFF");
+    let max_label = label(&format!("{:.0}°", day.temp_max_c.round()), 14, "600", dtext());
     max_label.set_size_request(40, -1);
     max_label.set_halign(gtk::Align::End);
     row.append(&max_label);
@@ -705,20 +735,20 @@ impl Widget for WeatherRoot {
     detail_scroll.set_vexpand(true);
     outer.append(&detail_scroll);
 
-    let city = label("", 28, "600", "#FFFFFF");
+    let city = label("", 28, "600", dtext());
     city.set_halign(gtk::Align::Center);
     city.set_margin_top(36);
     bg.append(&city);
-    let temp = label("--°", 72, "100", "#FFFFFF");
+    let temp = label("--°", 72, "100", dtext());
     temp.set_halign(gtk::Align::Center);
     bg.append(&temp);
-    let cond = label("", 17, "normal", "#FFFFFF");
+    let cond = label("", 17, "normal", dtext());
     cond.set_halign(gtk::Align::Center);
     bg.append(&cond);
-    let hilo = label("", 15, "normal", "#FFFFFF");
+    let hilo = label("", 15, "normal", dtext());
     hilo.set_halign(gtk::Align::Center);
     bg.append(&hilo);
-    let offline = label(&lang::t("error.offline"), 12, "600", "#FFD60A");
+    let offline = label(&lang::t("error.offline"), 12, "600", offline_color());
     offline.set_halign(gtk::Align::Center);
     offline.set_visible(false);
     bg.append(&offline);
@@ -728,7 +758,7 @@ impl Widget for WeatherRoot {
     bg.append(&gap);
 
     let summary_card = card();
-    let summary = label("", 13, "normal", "#FFFFFF");
+    let summary = label("", 13, "normal", dtext());
     summary.set_wrap(true);
     summary.set_margin_top(10);
     summary.set_margin_bottom(10);
@@ -737,7 +767,7 @@ impl Widget for WeatherRoot {
     summary_card.append(&summary);
     bg.append(&summary_card);
 
-    let hourly_title = label_alpha(&lang::t("detail.hourly_title"), 11, "600", "#FFFFFF", 70);
+    let hourly_title = label_alpha(&lang::t("detail.hourly_title"), 11, "600", dtext(), 70);
     hourly_title.set_halign(gtk::Align::Start);
     hourly_title.set_margin_start(24);
     hourly_title.set_margin_top(10);
@@ -755,7 +785,7 @@ impl Widget for WeatherRoot {
     hourly_card.append(&hourly_scroll);
     bg.append(&hourly_card);
 
-    let daily_title = label_alpha(&lang::t("detail.daily_title"), 11, "600", "#FFFFFF", 70);
+    let daily_title = label_alpha(&lang::t("detail.daily_title"), 11, "600", dtext(), 70);
     daily_title.set_halign(gtk::Align::Start);
     daily_title.set_margin_start(24);
     daily_title.set_margin_top(10);

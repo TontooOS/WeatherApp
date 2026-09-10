@@ -354,9 +354,10 @@ pub fn search_places(query: &str) -> Vec<FoundPlace> {
     .collect()
 }
 
-/// Render a white SF Symbol glyph (transparent tile) to a temp PNG.
+/// Render a CoreIcon SF Symbol glyph (transparent tile) to a temp PNG.
+/// White glyph in dark mode, near-black glyph in light mode for contrast.
 /// Returns the file path, or `None` when CoreIcon has no such symbol.
-pub fn weather_icon_path(symbol: &str, display_px: u32) -> Option<String> {
+pub fn weather_icon_path(symbol: &str, display_px: u32, dark: bool) -> Option<String> {
   let sf = crate::CoreIcon::SFSymbol::from_name(symbol)?;
   let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     .join("../../TontooLibs/CoreIcon/assets/icons");
@@ -367,12 +368,16 @@ pub fn weather_icon_path(symbol: &str, display_px: u32) -> Option<String> {
     }
   }
   let px = display_px.clamp(8, 256);
-  let key = format!("wx_{}_{px}", symbol.replace('.', "_"));
+  let key = format!("wx_{}_{px}_{}", symbol.replace('.', "_"), if dark { "d" } else { "l" });
   let out_path = std::env::temp_dir().join(format!("{key}.png"));
   if out_path.exists() {
     return Some(out_path.to_str()?.to_string());
   }
-  let white = crate::CoreIcon::Color::new(1.0, 1.0, 1.0, 1.0);
+  let glyph = if dark {
+    crate::CoreIcon::Color::new(1.0, 1.0, 1.0, 1.0)
+  } else {
+    crate::CoreIcon::Color::new(0.11, 0.11, 0.11, 1.0)
+  };
   let clear = crate::CoreIcon::Color::new(0.0, 0.0, 0.0, 0.0);
   let canvas = crate::CoreIcon::generator::IconCanvas::new()
     .background(crate::CoreIcon::generator::Background::color(clear))
@@ -381,7 +386,7 @@ pub fn weather_icon_path(symbol: &str, display_px: u32) -> Option<String> {
       crate::CoreIcon::generator::Layer::new(crate::CoreIcon::generator::LayerContent::icon(sf))
         .position(120.0, 120.0)
         .size(784.0, 784.0)
-        .tint(white),
+        .tint(glyph),
     );
   canvas.save(&out_path).ok()?;
   Some(out_path.to_str()?.to_string())
