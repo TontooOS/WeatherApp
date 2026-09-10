@@ -28,6 +28,8 @@ fn main() {
   let mut app = App::with_delegate(lang::t("app.title"), 1024, 640, WeatherDelegate);
   // No extra window bar: the sidebar draws the only traffic lights.
   app.no_window_bar();
+  // Exact size for testing (bypasses content measure + monitor cap).
+  app.force_size(1600, 900);
   app.auto_color_scheme();
   app.run();
 }
