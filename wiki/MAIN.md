@@ -6,7 +6,7 @@ forecast and detail tiles.
 
 - Repository: https://github.com/TontooOS/MicroApps (Weather)
 - License: TCL v26.1
-- Version: 26.1.0
+- Version: 27.0.0
 
 ## Feature Index
 

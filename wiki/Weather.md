@@ -112,7 +112,7 @@ the `.app` bundle; the root `lang/` copies cover `cargo run`.
 {
   "bundle_id": "com.tontoo.weather",
   "name": "Weather",
-  "version": "26.1.0",
+  "version": "27.0.0",
   "icon": "Resources/app_icon.png"
 }
 ```
