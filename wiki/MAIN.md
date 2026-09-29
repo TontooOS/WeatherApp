@@ -5,7 +5,7 @@ locations, detail with dynamic condition background, hourly strip, 10-day
 forecast and detail tiles.
 
 - Repository: https://github.com/TontooOS/MicroApps (Weather)
-- License: TCL v26.1
+- License: TCL v27.0
 - Version: 27.0.0
 
 ## Feature Index
