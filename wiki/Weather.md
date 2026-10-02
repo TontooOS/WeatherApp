@@ -39,6 +39,7 @@ The sidebar is the TontooUI `Sidebar` element, rebuilt by
 | Page per entry | `detail_page` (see below), so selecting an entry shows its own detail |
 | Traffic lights | Built into the element, mapped to `WindowCommand` through `Sidebar::press` |
 | Add pill | `left_button(0, "plus", ...)`, opens the search sheet |
+| Collapse toggle | Built into the element, toggles the column; collapsed the `+` pill and the toggle move to the far right of the window on the traffic row and float on the gradient (`toolbar(false)` hides the title band only) |
 | Column width | `SIDEBAR_W` (260 px), drag-resizable, collapsible |
 | Filter field | The element search row filters saved locations by name |
 

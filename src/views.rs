@@ -778,10 +778,11 @@ impl WeatherApp {
       })
       .collect();
 
-    let mut sidebar = Sidebar::new(items)
-      .width(width)
-      .search_field(true)
-      .collapsible(true);
+let mut sidebar = Sidebar::new(items)
+.width(width)
+.search_field(true)
+.collapsible(true)
+.toolbar(false);
     for index in 0..self.shared.places.len() {
       let place = self.shared.places[index].clone();
       let snapshot = self.shared.data.get(index).and_then(|slot| slot.clone());
