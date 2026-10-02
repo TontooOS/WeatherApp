@@ -1,8 +1,7 @@
 # Weather
 
-Weather app for TontooOS: sidebar with saved locations,
-dynamic condition background, hourly strip, 10-day forecast, detail
-tiles and a MapsKit precipitation map.
+Weather app for TontooOS built with TontooUI: sidebar with saved locations,
+dynamic condition background, hourly strip, 10-day forecast and detail tiles.
 
 ## Made for TontooOS
 

@@ -1,10 +1,14 @@
-//! Weather for TontooOS: macOS Weather-style app built with TontooUI.
+//! Weather for TontooOS: macOS Weather-style app built on the TontooUI
+//! renderer.
 //!
-//! Sidebar on the left (traffic lights + add button, saved locations with
-//! live temperatures), detail in the center (dynamic condition background,
-//! hourly strip, 10-day forecast, detail tiles), MapsKit map on the right.
-//! All text uses SF Pro Display with `en_us` and `de_de` strings from
-//! `Resources/lang` via the Accessibility framework.
+//! A TontooUI `Sidebar` owns the navigation column (traffic lights, add
+//! pill, one page per saved location) and the condition-driven detail
+//! page lives in that page slot: a gradient background view wrapping a
+//! `ScrollView` with the current conditions, hourly strip, 10-day
+//! forecast and detail tiles. Adding a location opens a `BasicSheet`
+//! with a search field, removing one a `ActionAlert`. All text uses SF
+//! Pro with `en_us` and `de_de` strings from `Resources/lang` via the
+//! Accessibility framework.
 
 mod lang;
 mod store;
@@ -13,30 +17,12 @@ mod weather;
 
 sdk::preinclude!();
 
-use UIKit::prelude::*;
-
-struct WeatherDelegate;
-
-impl AppDelegate for WeatherDelegate {
-  fn view(&self) -> Box<dyn Widget> {
-    Box::new(views::WeatherRoot::new())
-  }
-}
+use TontooUI::renderer::window::run;
 
 fn main() {
   lang::init();
-  let mut app = App::with_delegate(lang::t("app.title"), 1200, 675, WeatherDelegate);
-  // No extra window bar: the sidebar draws the only traffic lights.
-  app.no_window_bar();
-  // No outer UIKit scroll wrapper: our root fills the window directly
-  // (inner lists scroll themselves), so no theme background shows through.
-  app.no_scroll();
-  // Exact default size (bypasses content measure + monitor cap).
-  app.force_size(1200, 675);
-  // Slight glass: translucent window + backdrop blur, the sidebar adds
-  // its own translucency on top for a frosted panel feel.
-  app.set_window_transparency(0.92);
-  app.set_window_blur(16.0);
-  app.auto_color_scheme();
-  app.run();
+  if let Err(err) = run(&lang::t("app.title"), 1200, 675, views::WeatherApp::new()) {
+    eprintln!("weather: {err}");
+    std::process::exit(1);
+  }
 }

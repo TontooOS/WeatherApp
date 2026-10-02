@@ -142,17 +142,31 @@ pub fn fmt_temp(celsius: f64) -> String {
   format!("{}°", celsius.round() as i64)
 }
 
-/// Hour label from an ISO time (`2026-09-09T20:00` -> `8PM`).
+/// Hour label from an ISO time (`2026-09-09T20:00` -> `8PM` or
+/// `20:00`, depending on the locale clock from `hour.format`).
 pub fn hour_label(iso: &str) -> String {
   let hour: i32 = iso.get(11..13).and_then(|h| h.parse().ok()).unwrap_or(0);
-  if hour == 0 {
-    "12AM".to_string()
-  } else if hour < 12 {
-    format!("{hour}AM")
-  } else if hour == 12 {
-    "12PM".to_string()
+  clock_time(hour as u32, 0)
+}
+
+/// Wall clock time in the locale format (`6:42 AM` or `06:42`).
+pub fn clock_time(hour: u32, minute: u32) -> String {
+  if crate::lang::uses_24h_clock() {
+    return format!("{hour:02}:{minute:02}");
+  }
+  let suffix = if hour < 12 {
+    crate::lang::t("hour.am")
   } else {
-    format!("{}PM", hour - 12)
+    crate::lang::t("hour.pm")
+  };
+  let display = match hour % 12 {
+    0 => 12,
+    other => other,
+  };
+  if suffix.is_empty() {
+    format!("{display}:{minute:02}")
+  } else {
+    format!("{display}:{minute:02} {suffix}")
   }
 }
 
@@ -166,7 +180,8 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
   era * 146_097 + doe - 719_468
 }
 
-/// Weekday name for an ISO date (`2026-09-09` -> `Wed`); index 0 is Today.
+/// Weekday name for an ISO date (`2026-09-09` -> `Wed`); index 0 is
+/// Today. Short names come from the locale (`day.sun` ... `day.sat`).
 pub fn day_name(iso_date: &str, index: usize) -> String {
   if index == 0 {
     return crate::lang::t("detail.today");
@@ -182,16 +197,16 @@ pub fn day_name(iso_date: &str, index: usize) -> String {
   );
   // 1970-01-01 was a Thursday (index 4 with Sunday = 0).
   let weekday = (days_from_civil(y, m, d) + 4).rem_euclid(7);
-  match weekday {
-    0 => "Sun",
-    1 => "Mon",
-    2 => "Tue",
-    3 => "Wed",
-    4 => "Thu",
-    5 => "Fri",
-    _ => "Sat",
-  }
-  .to_string()
+  let key = match weekday {
+    0 => "day.sun",
+    1 => "day.mon",
+    2 => "day.tue",
+    3 => "day.wed",
+    4 => "day.thu",
+    5 => "day.fri",
+    _ => "day.sat",
+  };
+  crate::lang::t(key)
 }
 
 /// Compass point for meteorological wind degrees.
@@ -413,63 +428,4 @@ pub fn search_places(query: &str) -> Vec<FoundPlace> {
       lon: place.longitude,
     })
     .collect()
-}
-
-/// Render a CoreIcon SF Symbol glyph (transparent tile) to a temp PNG.
-/// White glyph in dark mode, near-black glyph in light mode for contrast.
-/// Returns the file path, or `None` when CoreIcon has no such symbol.
-///
-/// Heavy work: call only from worker threads, never from the UI thread.
-/// The UI uses [`weather_icon_path_cached`], which never renders.
-pub fn weather_icon_path(symbol: &str, display_px: u32, dark: bool) -> Option<String> {
-  let sf = crate::CoreIcon::SFSymbol::from_name(symbol)?;
-  let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-    .join("../../TontooLibs/CoreIcon/assets/icons");
-  if assets.exists() {
-    unsafe {
-      crate::CoreIcon::generator::ASSETS_DIR =
-        Box::leak(assets.to_str()?.to_string().into_boxed_str());
-    }
-  }
-  let px = display_px.clamp(8, 256);
-  let key = format!("wx_{}_{px}_{}", symbol.replace('.', "_"), if dark { "d" } else { "l" });
-  let out_path = std::env::temp_dir().join(format!("{key}.png"));
-  if out_path.exists() {
-    return Some(out_path.to_str()?.to_string());
-  }
-  let glyph = if dark {
-    crate::CoreIcon::Color::new(1.0, 1.0, 1.0, 1.0)
-  } else {
-    crate::CoreIcon::Color::new(0.11, 0.11, 0.11, 1.0)
-  };
-  let clear = crate::CoreIcon::Color::new(0.0, 0.0, 0.0, 0.0);
-  let canvas = crate::CoreIcon::generator::IconCanvas::new()
-    .background(crate::CoreIcon::generator::Background::color(clear))
-    .corner_radius(220.0)
-    .layer(
-      crate::CoreIcon::generator::Layer::new(crate::CoreIcon::generator::LayerContent::icon(sf))
-        .position(120.0, 120.0)
-        .size(784.0, 784.0)
-        .tint(glyph),
-    );
-  canvas.save(&out_path).ok()?;
-  Some(out_path.to_str()?.to_string())
-}
-
-/// Cache-only icon lookup for the UI thread: returns the file path when
-/// the PNG was already rendered by a worker, otherwise `None` (the row
-/// renders without an icon and fills it in on the next refresh).
-/// Never renders, never blocks.
-pub fn weather_icon_path_cached(symbol: &str, display_px: u32, dark: bool) -> Option<String> {
-  if crate::CoreIcon::SFSymbol::from_name(symbol).is_none() {
-    return None;
-  }
-  let px = display_px.clamp(8, 256);
-  let key = format!("wx_{}_{px}_{}", symbol.replace('.', "_"), if dark { "d" } else { "l" });
-  let out_path = std::env::temp_dir().join(format!("{key}.png"));
-  if out_path.exists() {
-    out_path.to_str().map(|s| s.to_string())
-  } else {
-    None
-  }
 }

@@ -35,9 +35,9 @@ impl SavedPlace {
 }
 
 fn coredata_load() -> Option<Vec<SavedPlace>> {
-  let mut container = match coredata::PersistentContainer::new_with_bundle(
+  let mut container = match crate::CoreData::PersistentContainer::new_with_bundle(
     BUNDLE_ID.to_string(),
-    coredata::StoreType::Fico,
+    crate::CoreData::StoreType::Fico,
   ) {
     Ok(container) => container,
     Err(err) => {
@@ -74,9 +74,9 @@ fn coredata_load() -> Option<Vec<SavedPlace>> {
 }
 
 fn coredata_save(places: &[SavedPlace]) {
-  let mut container = match coredata::PersistentContainer::new_with_bundle(
+  let mut container = match crate::CoreData::PersistentContainer::new_with_bundle(
     BUNDLE_ID.to_string(),
-    coredata::StoreType::Fico,
+    crate::CoreData::StoreType::Fico,
   ) {
     Ok(container) => container,
     Err(err) => {

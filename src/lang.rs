@@ -7,12 +7,12 @@
 //! are supported.
 
 use crate::Accessibility::{LangFile, LangStore};
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
-static LOCALE: OnceCell<String> = OnceCell::new();
-static READY: OnceCell<()> = OnceCell::new();
+static LOCALE: OnceLock<String> = OnceLock::new();
+static READY: OnceLock<()> = OnceLock::new();
 
 /// Detect the system locale. Returns `de_de` for German, `en_us` otherwise.
 pub fn detect_locale() -> String {
@@ -72,6 +72,9 @@ fn builtin_en() -> LangFile {
     ("detail.hourly_now", "Now"),
     ("detail.today", "Today"),
     ("cond.unknown", "Unknown"),
+    ("hour.format", "12h"),
+    ("hour.am", "AM"),
+    ("hour.pm", "PM"),
   ];
   let map: HashMap<String, String> = pairs
     .iter()
@@ -122,6 +125,13 @@ pub fn t(key: &str) -> String {
   LangStore::instance()
     .t(&locale(), key, None)
     .unwrap_or_else(|| key.to_string())
+}
+
+/// True when the locale uses a 24 hour clock (`hour.format` is
+/// `24h`, the German default); otherwise 12 hour clock with the
+/// `hour.am` / `hour.pm` suffixes.
+pub fn uses_24h_clock() -> bool {
+  t("hour.format") == "24h"
 }
 
 #[cfg(test)]
