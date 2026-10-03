@@ -25,11 +25,19 @@ wsl -d archlinux bash -c "cd /mnt/c/Users/arlo1/Documents/TontooMicroApps/Weathe
 ```
 
 Add a location with the `+` pill next to the traffic lights and pick it from
-the search sheet; remove the selected location with the trash button in the
-detail header. State persists via CoreData. See [Weather.md](Weather.md) for
-details.
+the search sheet; remove one by right-clicking its sidebar entry and clicking
+`Delete` in the context menu, which confirms with an alert. State persists via
+CoreData. See [Weather.md](Weather.md) for details.
 
 ## Changelog
+
+- 2026-10-03: Locations are removed through a sidebar context menu.
+  Right-clicking a sidebar entry selects it and opens a `ContextMenu`
+  with one destructive `Delete` row (macOS system red); the row asks
+  with the `ActionAlert` before `remove_place` runs. The trash button
+  is gone, so the detail header is just the city name. Needs the
+  TontooUI additions `Sidebar::item_at` and `Menu::destructive`. See
+  [Weather.md](Weather.md).
 
 - 2026-10-02: Ported to the new TontooUI API (wgpu/Vello renderer, `View`
   tree, no UIKit and no GTK). `Sidebar` owns the column and one detail page

@@ -6,7 +6,9 @@
 //! the detail for that place: a condition gradient background wrapping a
 //! `ScrollView` with the current conditions, the hourly strip, the 10-day
 //! forecast and the detail tiles. Adding a location opens a `BasicSheet`
-//! with a search field, removing one a `ActionAlert`.
+//! with a search field. Right-clicking a sidebar entry opens a
+//! `ContextMenu` with one destructive `Delete` row, which asks with an
+//! `ActionAlert` before the place is removed.
 //!
 //! All network and geolocation work runs on worker threads and reports
 //! through an `mpsc` channel that `draw` drains, so the UI thread never
@@ -30,8 +32,9 @@ use crate::WeatherKit::{CurrentWeather, ForecastDay, HourPoint};
 
 use crate::TontooUI::elements::{
   ActionAlert, AlertButton, Align, Background, BasicSheet, BasicText, Button, ButtonStyle,
-  GradientPaint, HStack, LinearProgress, Padding, ScrollView, SearchField, SheetSize, Sidebar,
-  SidebarItem, SFSymbolImage, TextAlignment, TrafficAction, VStack, View, BUTTON_BG_LIGHT,
+  ContextMenu, GradientPaint, HStack, LinearProgress, Menu, Padding, ScrollView, SearchField,
+  SheetSize, Sidebar, SidebarItem, SFSymbolImage, TextAlignment, TrafficAction, VStack, View,
+  BUTTON_BG_LIGHT, SIDEBAR_ITEMS_TOP,
 };
 use crate::TontooUI::kurbo::{Affine, Rect};
 use crate::TontooUI::peniko::Fill;
@@ -538,7 +541,6 @@ fn detail_page(
   place: &SavedPlace,
   snapshot: Option<&PlaceWeather>,
   theme: &Theme,
-  remove_flag: Rc<Cell<Option<(f64, f64)>>>,
 ) -> GradientView {
   let dark = theme.mode == ThemeMode::Dark;
   let text = detail_text(dark);
@@ -552,28 +554,13 @@ fn detail_page(
 
   let mut column = VStack::new().spacing(10.0).align(Align::Center);
 
-  // Header: remove button plus the city name.
-  let mut remove = Button::new("")
-    .icon("trash.fill")
-    .style(ButtonStyle::Plain)
-    .hover_effect(true);
-  remove.set_palette(Color::TRANSPARENT, text);
-  let remove = {
-    let flag = remove_flag.clone();
-    let (lat, lon) = (place.lat, place.lon);
-    remove.on_press(move || flag.set(Some((lat, lon))))
-  };
+  // Header: the city name. Removing a place is a right-click on its
+  // sidebar entry, so nothing else lives here.
   column = column.child(
-    HStack::new()
-      .spacing(10.0)
-      .align(Align::Center)
-      .child(remove)
-      .child(
-        BasicText::new(place.name.clone())
-          .size(26.0)
-          .weight(600.0)
-          .foreground_color(text),
-      ),
+    BasicText::new(place.name.clone())
+      .size(26.0)
+      .weight(600.0)
+      .foreground_color(text),
   );
 
   let Some(data) = snapshot else {
@@ -645,8 +632,9 @@ fn detail_page(
 
 // ── app ──────────────────────────────────────────────────────────────
 
-/// The Weather app: one `Sidebar` holding every saved location plus the
-/// modal search sheet and the remove confirmation.
+/// The Weather app: one `Sidebar` holding every saved location, the
+/// per-place context menu, the modal search sheet and the remove
+/// confirmation.
 pub struct WeatherApp {
   shared: Shared,
   tx: Sender<Msg>,
@@ -654,7 +642,9 @@ pub struct WeatherApp {
   sidebar: Sidebar,
   search: BasicSheet<VStack>,
   delete: ActionAlert,
+  context: ContextMenu,
   add_flag: Rc<Cell<bool>>,
+  context_target: Rc<Cell<Option<(f64, f64)>>>,
   remove_flag: Rc<Cell<Option<(f64, f64)>>>,
   pending_remove: Option<(f64, f64)>,
   picked: Rc<RefCell<Option<FoundPlace>>>,
@@ -676,6 +666,7 @@ impl WeatherApp {
   pub fn new() -> Self {
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let add_flag = Rc::new(Cell::new(false));
+    let context_target = Rc::new(Cell::new(None));
     let remove_flag = Rc::new(Cell::new(None));
     let picked = Rc::new(RefCell::new(None));
     let close_flag = Rc::new(Cell::new(false));
@@ -720,6 +711,27 @@ impl WeatherApp {
       AlertButton::ok(lang::t("delete.remove")).color(color("#FF3B30")),
     );
 
+    // Sidebar context menu: one destructive row, the click only asks
+    // for the coordinates of the right-clicked place, `apply_flags`
+    // turns it into the confirmation.
+    let delete_row = lang::t("sidebar.delete");
+    let context = ContextMenu::basic(
+      (0.0, 0.0, 0.0, 0.0),
+      Menu::from_slice("", &[delete_row.as_str()])
+        .destructive(0)
+        .on_action({
+          let target = context_target.clone();
+          let remove = remove_flag.clone();
+          move |index| {
+            if index == 0 {
+              if let Some(place) = target.take() {
+                remove.set(Some(place));
+              }
+            }
+          }
+        }),
+    );
+
     let mut app = Self {
       shared: Shared::fresh(),
       tx,
@@ -729,7 +741,9 @@ impl WeatherApp {
         .size(SheetSize::Half)
         .background(color("#FFFFFF")),
       delete,
+      context,
       add_flag,
+      context_target,
       remove_flag,
       pending_remove: None,
       picked,
@@ -786,12 +800,7 @@ let mut sidebar = Sidebar::new(items)
     for index in 0..self.shared.places.len() {
       let place = self.shared.places[index].clone();
       let snapshot = self.shared.data.get(index).and_then(|slot| slot.clone());
-      sidebar = sidebar.page(detail_page(
-        &place,
-        snapshot.as_ref(),
-        &theme,
-        self.remove_flag.clone(),
-      ));
+      sidebar = sidebar.page(detail_page(&place, snapshot.as_ref(), &theme));
     }
     let add_flag = self.add_flag.clone();
     sidebar = sidebar.left_button(0, "plus", move || add_flag.set(true));
@@ -1114,12 +1123,51 @@ let mut sidebar = Sidebar::new(items)
     self.dispatch_search();
   }
 
+  /// Activation area of the context menu: the sidebar item rows.
+  /// Empty while collapsed, so a right-click in the content never
+  /// opens it.
+  fn context_area(&self, viewport: Viewport) -> (f32, f32, f32, f32) {
+    if self.sidebar.is_collapsed() {
+      return (viewport.x, viewport.y, 0.0, 0.0);
+    }
+    let (row_h, _, _, _) = self.sidebar.row_metrics();
+    (
+      viewport.x,
+      viewport.y + SIDEBAR_ITEMS_TOP,
+      self.sidebar.width_value(),
+      self.shared.places.len() as f32 * row_h,
+    )
+  }
+
+  /// Right-click: open the delete menu on the entry under the pointer.
+  /// The last remaining place never gets a menu (the app keeps one
+  /// location, so `remove_place` would refuse anyway).
+  fn open_context_menu(&mut self, x: f64, y: f64) {
+    if self.search.is_visible() || self.delete.is_visible() {
+      return;
+    }
+    if self.shared.places.len() > 1 {
+      if let Some(index) = self.sidebar.item_at(x as f32, y as f32) {
+        let place = self.shared.places[index].clone();
+        self.context_target.set(Some((place.lat, place.lon)));
+        self.sidebar.select(index);
+        self.load_index(index);
+        self.context.context_click(x, y);
+        return;
+      }
+    }
+    self.context.close();
+  }
+
   /// Theme the sheet contents: the field needs the glass stage, the
   /// result buttons a light card fill.
   fn theme_sheet(&mut self, theme: &Theme, accent: Color) {
     self.search.set_theme(theme.mode == ThemeMode::Dark);
-    self.delete
+    self
+      .delete
       .set_theme(theme.mode, accent, theme.glass);
+    self.context.set_theme(accent, theme.mode == ThemeMode::Dark);
+    self.context.set_glass(theme.mode, theme.glass);
     let dark = theme.mode == ThemeMode::Dark;
     let content = self.search.child_mut();
     if let Some(field) = content.child_mut::<SearchField>(1) {
@@ -1183,6 +1231,15 @@ impl App for WeatherApp {
       .place(fonts, viewport.x, viewport.y, viewport.width, viewport.height);
     self.sidebar.draw(scene, fonts, images);
 
+    // Context menu floats above the sidebar, its area covers the item
+    // rows so a right-click elsewhere never opens it.
+    self.context.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+    self.context.set_area(self.context_area(viewport));
+    self
+      .context
+      .place(fonts, viewport.x, viewport.y, viewport.width, viewport.height);
+    self.context.draw(scene, fonts, images);
+
     if self.search.is_visible() {
       self.search
         .set_viewport(viewport.x, viewport.y, viewport.width, viewport.height);
@@ -1239,6 +1296,12 @@ impl App for WeatherApp {
       self.delete.mouse_down(x, y);
       return;
     }
+    // An open context menu owns the pointer: the click either hits a
+    // row or closes it, the sidebar waits for the next one.
+    if self.context.is_open() {
+      self.context.mouse_down(x, y);
+      return;
+    }
     // Traffic lights first: a hit must never reach the page.
     if let Some(action) = self.sidebar.press(x, y) {
       self.command = Some(match action {
@@ -1262,8 +1325,16 @@ impl App for WeatherApp {
       self.text_cursor = hovered;
       return;
     }
+    if self.context.is_open() {
+      self.context.mouse_move(x, y);
+      return;
+    }
     self.sidebar.set_hover(x as f32, y as f32);
     self.text_cursor = self.sidebar.search_text_cursor();
+  }
+
+  fn context_click(&mut self, x: f64, y: f64) {
+    self.open_context_menu(x, y);
   }
 
   fn set_focused(&mut self, focused: bool) {
@@ -1271,6 +1342,7 @@ impl App for WeatherApp {
     self.sidebar.set_focused(focused);
     self.search.set_focused(focused);
     self.delete.set_focused(focused);
+    self.context.set_focused(focused);
   }
 
   fn mouse_up(&mut self, x: f64, y: f64) {
@@ -1289,11 +1361,19 @@ impl App for WeatherApp {
       }
       return;
     }
+    if self.context.is_open() {
+      self.context.mouse_up(x, y);
+      return;
+    }
     self.sidebar.mouse_up(x, y);
   }
 
   fn mouse_wheel(&mut self, dx: f64, dy: f64) {
     if self.search.is_visible() || self.delete.is_visible() {
+      return;
+    }
+    if self.context.is_open() {
+      self.context.mouse_wheel(dx, dy);
       return;
     }
     self.sidebar.mouse_wheel(dx, dy);
@@ -1327,6 +1407,12 @@ impl App for WeatherApp {
     if self.delete.is_visible() {
       if key == Key::Escape {
         self.delete.dismiss();
+      }
+      return;
+    }
+    if self.context.is_open() {
+      if key == Key::Escape {
+        self.context.close();
       }
       return;
     }

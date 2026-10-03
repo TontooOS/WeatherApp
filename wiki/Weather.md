@@ -56,7 +56,7 @@ One page per location, returned by `detail_page` in `src/views.rs`:
 GradientView            condition gradient, painted behind everything
 └── ScrollView           vertical scroll, integrated scrollbar
     └── VStack (Center)  10 px spacing
-        ├── HStack       remove button + city name (26 px semibold)
+        ├── BasicText    city name (26 px semibold)
         ├── BasicText    temperature (72 px, weight 100)
         ├── BasicText    condition (17 px)
         ├── BasicText    H:.. L:.. (15 px, 75% alpha)
@@ -118,11 +118,33 @@ holding five children by index:
 
 ## Remove Location
 
-The trash button in the detail header sets a shared cell. `draw` opens an
-`ActionAlert` with the place name in the message (Cancel plus a red Delete)
-and stores the coordinates. The Delete press (event index 1) removes the
-place, keeping at least one location, and persists through
-`store::save_places`.
+Removing a place is a right-click flow: the sidebar entry gets a context menu
+with one destructive `Delete` row, and that row asks before anything is
+removed.
+
+```text
+right-click on a sidebar entry
+└── ContextMenu          anchored at the pointer, frosted panel
+    └── Menu             one row: Delete (destructive, macOS system red)
+        └── click        ActionAlert: Cancel + red Delete
+            └── Delete   remove_place, keeps the last location
+```
+
+`open_context_menu` runs from `App::context_click`:
+
+| Step | Detail |
+|---|---|
+| Row | `sidebar.item_at(x, y)` gives the real item index; a right-click never reaches `mouse_down`, so this is the only way to resolve the row |
+| Guard | Closed while the sheet or the alert is up, closed on a miss (search row, content, collapsed column) and closed when only one place is left, since `remove_place` keeps one |
+| Side effect | The entry is selected (macOS behavior) and `load_index` retries its data |
+| Area | `context_area` is the item-row band, empty while collapsed, refreshed every frame in `draw` |
+| Menu | `Menu::from_slice("", &[lang::t("sidebar.delete")]).destructive(0)`; the row action only copies the coordinates into `remove_flag` |
+| Confirm | `apply_flags` turns `remove_flag` into the `ActionAlert` (title, message with `%name%`, Cancel plus a red Delete) and stores the coordinates in `pending_remove` |
+| Delete press | `App::mouse_up` sees alert event index 1, calls `remove_place` (which keeps at least one location) and persists through `store::save_places` |
+
+While the menu is open it owns the pointer: presses, moves and the wheel go to
+it, so a click outside only closes it. ESC closes it too (`key`). The detail
+header holds nothing but the city name now; the trash button is gone.
 
 ## Data Flow
 
@@ -192,6 +214,9 @@ All strings come from the Accessibility `LangStore` (`src/lang.rs`,
 
 | Key group | Purpose |
 |---|---|
+| `sidebar.delete` | The context menu row label (`Delete` / `Loeschen`) |
+| `delete.title`, `delete.message` | Alert title and the `%name%` message |
+| `delete.cancel`, `delete.remove` | Alert buttons (the remove one is red) |
 | `hour.format` | `12h` or `24h`; `lang::uses_24h_clock` drives `clock_time` and `hour_label` |
 | `hour.am`, `hour.pm` | Suffixes, empty for the 24 hour locale |
 | `day.sun` ... `day.sat` | Short weekday names in the 10-day forecast |
@@ -210,8 +235,9 @@ All strings come from the Accessibility `LangStore` (`src/lang.rs`,
 | `BasicText` | Every text, `size` and `weight` overrides for the display temperature |
 | `SFSymbolImage` | Condition symbols |
 | `LinearProgress` | Daily temperature bar |
-| `Button`, `ButtonStyle` | Add pill result rows, close button, remove button |
+| `Button`, `ButtonStyle` | Add pill result rows, close button |
 | `BasicSheet`, `SheetSize`, `SearchField` | Add-location sheet |
+| `ContextMenu`, `Menu` | Sidebar right-click menu with the destructive `Delete` row |
 | `ActionAlert`, `AlertButton` | Remove confirmation |
 | `ThemeWatcher`, `Palette` | Dark/light, accent, glass stage, window background |
 
