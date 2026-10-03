@@ -33,8 +33,8 @@ use crate::WeatherKit::{CurrentWeather, ForecastDay, HourPoint};
 use crate::TontooUI::elements::{
   ActionAlert, AlertButton, Align, Background, BasicSheet, BasicText, Button, ButtonStyle,
   ContextMenu, GradientPaint, HStack, LinearProgress, Menu, Padding, ScrollView, SearchField,
-  SheetSize, Sidebar, SidebarItem, SFSymbolImage, Spacer, TextAlignment, TrafficAction, VStack,
-  View, BUTTON_BG_LIGHT, SIDEBAR_ITEMS_TOP,
+  SheetSize, Sidebar, SidebarItem, SFSymbolImage, Spacer, TextAlignment, TextForeground,
+  TrafficAction, VStack, View, BUTTON_BG_LIGHT, SIDEBAR_ITEMS_TOP,
 };
 use crate::TontooUI::kurbo::{Affine, Rect};
 use crate::TontooUI::peniko::Fill;
@@ -57,6 +57,9 @@ const CELL_W: f32 = 46.0;
 const TILE_INNER_W: f32 = 194.0;
 /// Debounce before a typed query hits the network.
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(450);
+/// Inner padding of the search sheet card in logical px (the card
+/// itself has none).
+const SHEET_PAD: f32 = 20.0;
 
 // ── colors ───────────────────────────────────────────────────────────
 
@@ -125,6 +128,33 @@ fn offline_color(dark: bool) -> Color {
     color("#FFD60A")
   } else {
     color("#B26A00")
+  }
+}
+
+// ── sheet palette ────────────────────────────────────────────────────────
+
+/// Text color inside the search sheet. The card follows the theme
+/// (`BasicSheet::set_theme`), so the labels must follow it too: the
+/// sheet used to hardcode dark-on-white and stayed light in dark mode.
+fn sheet_text(dark: bool) -> Color {
+  if dark {
+    color("#D8D9D9")
+  } else {
+    color("#272727")
+  }
+}
+
+/// Secondary sheet text (hint line, close glyph).
+fn sheet_dim() -> Color {
+  color("#8E8E93")
+}
+
+/// Solid search field body, the open-panel gray per mode.
+fn sheet_field_fill(dark: bool) -> Color {
+  if dark {
+    color("#3A3A3C")
+  } else {
+    color("#EDEDF0")
   }
 }
 
@@ -677,51 +707,57 @@ impl WeatherApp {
 
     // Search sheet content, macOS open-panel shape: title plus close
     // button on one row, the search field under it, the hint line and
-    // a results list that fills the rest of the card.
+    // a results list that fills the rest of the card. The card itself
+    // carries no inner padding, so the column sits in a `Padding`
+    // (sheet content: `Padding` -> `VStack`). Colors start at the dark
+    // palette, `theme_sheet` repaints them per mode.
     let field_query = query.clone();
     let field_changed = query_changed.clone();
     let close = close_flag.clone();
-    let content = VStack::new()
-      .spacing(10.0)
-      .align(Align::Leading)
-      .child(
-        HStack::new()
-          .spacing(8.0)
-          .align(Align::Center)
-          .child(
-            BasicText::new(lang::t("search.title"))
-              .size(16.0)
-              .weight(600.0)
-              .foreground_color(color("#272727")),
-          )
-          .child(Spacer::new())
-          .child({
-            let flag = close.clone();
-            let mut button = Button::new("")
-              .icon("xmark")
-              .style(ButtonStyle::Plain)
-              .hover_effect(true);
-            button.set_palette(Color::TRANSPARENT, color("#6E6E73"));
-            button.on_press(move || flag.set(true))
-          }),
-      )
-      .child(
-        SearchField::new(lang::t("search.placeholder"))
-          // Neutral body instead of the glass capsule: the lens
-          // samples the window backdrop, so a field on a white card
-          // came out tinted by the detail gradient behind it.
-          .fill(color("#EDEDF0"))
-          .on_change(move |text| {
-            *field_query.borrow_mut() = text.to_string();
-            field_changed.set(Some(Instant::now()));
-          }),
-      )
-      .child(
-        BasicText::new(lang::t("search.hint"))
-          .size(12.0)
-          .foreground_color(color("#6E6E73")),
-      )
-      .child(ScrollView::new(VStack::new().spacing(6.0)));
+    let content = Padding::all(
+      VStack::new()
+        .spacing(10.0)
+        .align(Align::Leading)
+        .child(
+          HStack::new()
+            .spacing(8.0)
+            .align(Align::Center)
+            .child(
+              BasicText::new(lang::t("search.title"))
+                .size(16.0)
+                .weight(600.0)
+                .foreground_color(sheet_text(true)),
+            )
+            .child(Spacer::new())
+            .child({
+              let flag = close.clone();
+              let mut button = Button::new("")
+                .icon("xmark")
+                .style(ButtonStyle::Plain)
+                .hover_effect(true);
+              button.set_palette(Color::TRANSPARENT, sheet_dim());
+              button.on_press(move || flag.set(true))
+            }),
+        )
+        .child(
+          SearchField::new(lang::t("search.placeholder"))
+            // Neutral body instead of the glass capsule: the lens
+            // samples the window backdrop, so a field on a card came
+            // out tinted by the detail gradient behind it.
+            .fill(sheet_field_fill())
+            .on_change(move |text| {
+              *field_query.borrow_mut() = text.to_string();
+              field_changed.set(Some(Instant::now()));
+            }),
+        )
+        .child(
+          BasicText::new(lang::t("search.hint"))
+            .size(12.0)
+            .foreground_color(sheet_dim()),
+        )
+        .child(ScrollView::new(VStack::new().spacing(6.0))),
+      SHEET_PAD,
+    );
 
     let delete = ActionAlert::new(
       lang::t("delete.title"),
@@ -756,9 +792,10 @@ impl WeatherApp {
       tx,
       rx,
       sidebar: Sidebar::new(Vec::new()).width(SIDEBAR_W),
-      search: BasicSheet::new(content)
-        .size(SheetSize::Large)
-        .background(color("#FFFFFF")),
+      // No manual card fill: `BasicSheet::set_theme` picks the dark or
+      // light card, so the sheet follows the system mode. The hardcoded
+      // white kept it light even in dark mode.
+      search: BasicSheet::new(content).size(SheetSize::Large),
       delete,
       context,
       add_flag,
@@ -1010,15 +1047,24 @@ let mut sidebar = Sidebar::new(items)
           .on_press(move || *picked.borrow_mut() = Some(chosen.clone())),
       );
     }
-    let content = self.search.child_mut();
-    if let Some(text) = content.child_mut::<BasicText>(2) {
+    let Some(column) = self.sheet_column() else {
+      return;
+    };
+    if let Some(text) = column.child_mut::<BasicText>(2) {
       text.set_text(message);
     }
-    if let Some(scroll) = content.child_mut::<ScrollView>(3) {
+    if let Some(scroll) = column.child_mut::<ScrollView>(3) {
       if let Some(slot) = scroll.child_mut::<VStack>() {
         *slot = rows;
       }
     }
+  }
+
+  /// The sheet column inside its padding: the sheet child is
+  /// `Padding` -> `VStack`, and every themed child is addressed by
+  /// index inside that `VStack`.
+  fn sheet_column(&mut self) -> Option<&mut VStack> {
+    self.search.child_mut().child_mut::<Padding>()?.child_mut()
   }
 
   /// Focus the sheet field once it has a rect: `SearchField` has no
@@ -1028,9 +1074,8 @@ let mut sidebar = Sidebar::new(items)
       return;
     }
     let rect = self
-      .search
-      .child_mut()
-      .child_mut::<SearchField>(1)
+      .sheet_column()
+      .and_then(|column| column.child_mut::<SearchField>(1))
       .map(|field| field.rect());
     let Some((x, y, width, height)) = rect else {
       return;
@@ -1038,7 +1083,10 @@ let mut sidebar = Sidebar::new(items)
     if width <= 0.0 || height <= 0.0 {
       return;
     }
-    if let Some(field) = self.search.child_mut().child_mut::<SearchField>(1) {
+    if let Some(field) = self
+      .sheet_column()
+      .and_then(|column| column.child_mut::<SearchField>(1))
+    {
       field.mouse_down((x + width / 2.0) as f64, (y + height / 2.0) as f64);
     }
     self.focus_field = false;
@@ -1049,7 +1097,10 @@ let mut sidebar = Sidebar::new(items)
     self.query.borrow_mut().clear();
     self.query_changed.set(None);
     self.results_seq = self.searching;
-    if let Some(field) = self.search.child_mut().child_mut::<SearchField>(1) {
+    if let Some(field) = self
+      .sheet_column()
+      .and_then(|column| column.child_mut::<SearchField>(1))
+    {
       field.set_text("");
     }
     self.set_results(Vec::new());
@@ -1180,8 +1231,9 @@ let mut sidebar = Sidebar::new(items)
     self.context.close();
   }
 
-  /// Theme the sheet contents: the field needs the glass stage, the
-  /// result buttons a light card fill.
+  /// Theme the sheet contents: the card follows the mode, the field
+  /// needs the glass stage plus the per-mode body fill, the labels and
+  /// the result buttons the per-mode text and card fill.
   fn theme_sheet(&mut self, theme: &Theme, accent: Color) {
     self.search.set_theme(theme.mode == ThemeMode::Dark);
     self
@@ -1190,27 +1242,39 @@ let mut sidebar = Sidebar::new(items)
     self.context.set_theme(accent, theme.mode == ThemeMode::Dark);
     self.context.set_glass(theme.mode, theme.glass);
     let dark = theme.mode == ThemeMode::Dark;
-    let content = self.search.child_mut();
-    if let Some(field) = content.child_mut::<SearchField>(1) {
+    let text = sheet_text(dark);
+    let dim = sheet_dim();
+    let Some(column) = self.sheet_column() else {
+      return;
+    };
+    // Header row: title, spacer, close button.
+    if let Some(header) = column.child_mut::<HStack>(0) {
+      if let Some(title) = header.child_mut::<BasicText>(0) {
+        title.set_foreground(TextForeground::Solid(text));
+      }
+      if let Some(button) = header.child_mut::<Button>(2) {
+        button.set_theme(accent, dark);
+        button.set_palette(Color::TRANSPARENT, dim);
+        button.set_focused(self.focused);
+      }
+    }
+    if let Some(field) = column.child_mut::<SearchField>(1) {
       field.set_theme(theme.mode, accent, theme.glass);
+      field.set_fill(Some(sheet_field_fill(dark)));
       field.set_focused(self.focused);
     }
-    if let Some(rows) = content.child_mut::<ScrollView>(3) {
-      if let Some(rows) = rows.child_mut::<VStack>() {
+    if let Some(hint) = column.child_mut::<BasicText>(2) {
+      hint.set_foreground(TextForeground::Solid(dim));
+    }
+    if let Some(scroll) = column.child_mut::<ScrollView>(3) {
+      if let Some(rows) = scroll.child_mut::<VStack>() {
         for index in 0..rows.len() {
           if let Some(button) = rows.child_mut::<Button>(index) {
             button.set_theme(accent, dark);
-            button.set_palette(BUTTON_BG_LIGHT, color("#272727"));
+            button.set_palette(BUTTON_BG_LIGHT, text);
             button.set_focused(self.focused);
           }
         }
-      }
-    }
-    // Header row: title, spacer, close button.
-    if let Some(header) = content.child_mut::<HStack>(0) {
-      if let Some(button) = header.child_mut::<Button>(2) {
-        button.set_theme(accent, dark);
-        button.set_focused(self.focused);
       }
     }
   }
@@ -1343,7 +1407,9 @@ impl App for WeatherApp {
     self.sidebar.mouse_move(x, y);
     if self.search.is_visible() {
       let mut hovered = false;
-      if let Some(field) = self.search.child_mut().child_mut::<SearchField>(1) {
+      if let Some(field) = self
+          .sheet_column()
+          .and_then(|column| column.child_mut::<SearchField>(1)) {
         field.set_hover(x as f32, y as f32);
         hovered = field.wants_text_cursor();
       }
@@ -1406,7 +1472,9 @@ impl App for WeatherApp {
 
   fn text(&mut self, text: &str) {
     if self.search.is_visible() {
-      if let Some(field) = self.search.child_mut().child_mut::<SearchField>(1) {
+      if let Some(field) = self
+          .sheet_column()
+          .and_then(|column| column.child_mut::<SearchField>(1)) {
         field.type_text(text);
       }
       return;
@@ -1424,7 +1492,9 @@ impl App for WeatherApp {
         self.dispatch_search();
         return;
       }
-      if let Some(field) = self.search.child_mut().child_mut::<SearchField>(1) {
+      if let Some(field) = self
+          .sheet_column()
+          .and_then(|column| column.child_mut::<SearchField>(1)) {
         field.key(key);
       }
       return;
