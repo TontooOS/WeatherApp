@@ -33,8 +33,8 @@ use crate::WeatherKit::{CurrentWeather, ForecastDay, HourPoint};
 use crate::TontooUI::elements::{
   ActionAlert, AlertButton, Align, Background, BasicSheet, BasicText, Button, ButtonStyle,
   ContextMenu, GradientPaint, HStack, LinearProgress, Menu, Padding, ScrollView, SearchField,
-  SheetSize, Sidebar, SidebarItem, SFSymbolImage, TextAlignment, TrafficAction, VStack, View,
-  BUTTON_BG_LIGHT, SIDEBAR_ITEMS_TOP,
+  SheetSize, Sidebar, SidebarItem, SFSymbolImage, Spacer, TextAlignment, TrafficAction, VStack,
+  View, BUTTON_BG_LIGHT, SIDEBAR_ITEMS_TOP,
 };
 use crate::TontooUI::kurbo::{Affine, Rect};
 use crate::TontooUI::peniko::Fill;
@@ -675,34 +675,53 @@ impl WeatherApp {
     let watcher = ThemeWatcher::new();
     let theme = watcher.theme();
 
-    // Search sheet content: title, field, message, results, close.
+    // Search sheet content, macOS open-panel shape: title plus close
+    // button on one row, the search field under it, the hint line and
+    // a results list that fills the rest of the card.
     let field_query = query.clone();
     let field_changed = query_changed.clone();
+    let close = close_flag.clone();
     let content = VStack::new()
-      .spacing(12.0)
+      .spacing(10.0)
       .align(Align::Leading)
       .child(
-        BasicText::new(lang::t("search.title"))
-          .size(16.0)
-          .weight(600.0)
-          .foreground_color(color("#272727")),
+        HStack::new()
+          .spacing(8.0)
+          .align(Align::Center)
+          .child(
+            BasicText::new(lang::t("search.title"))
+              .size(16.0)
+              .weight(600.0)
+              .foreground_color(color("#272727")),
+          )
+          .child(Spacer::new())
+          .child({
+            let flag = close.clone();
+            let mut button = Button::new("")
+              .icon("xmark")
+              .style(ButtonStyle::Plain)
+              .hover_effect(true);
+            button.set_palette(Color::TRANSPARENT, color("#6E6E73"));
+            button.on_press(move || flag.set(true))
+          }),
       )
-      .child(SearchField::new(lang::t("search.placeholder")).on_change(move |text| {
-        *field_query.borrow_mut() = text.to_string();
-        field_changed.set(Some(Instant::now()));
-      }))
+      .child(
+        SearchField::new(lang::t("search.placeholder"))
+          // Neutral body instead of the glass capsule: the lens
+          // samples the window backdrop, so a field on a white card
+          // came out tinted by the detail gradient behind it.
+          .fill(color("#EDEDF0"))
+          .on_change(move |text| {
+            *field_query.borrow_mut() = text.to_string();
+            field_changed.set(Some(Instant::now()));
+          }),
+      )
       .child(
         BasicText::new(lang::t("search.hint"))
           .size(12.0)
           .foreground_color(color("#6E6E73")),
       )
-      .child(VStack::new().spacing(6.0))
-      .child({
-        let flag = close_flag.clone();
-        Button::new(lang::t("search.close"))
-          .style(ButtonStyle::Bordered)
-          .on_press(move || flag.set(true))
-      });
+      .child(ScrollView::new(VStack::new().spacing(6.0)));
 
     let delete = ActionAlert::new(
       lang::t("delete.title"),
@@ -738,7 +757,7 @@ impl WeatherApp {
       rx,
       sidebar: Sidebar::new(Vec::new()).width(SIDEBAR_W),
       search: BasicSheet::new(content)
-        .size(SheetSize::Half)
+        .size(SheetSize::Large)
         .background(color("#FFFFFF")),
       delete,
       context,
@@ -995,8 +1014,10 @@ let mut sidebar = Sidebar::new(items)
     if let Some(text) = content.child_mut::<BasicText>(2) {
       text.set_text(message);
     }
-    if let Some(slot) = content.child_mut::<VStack>(3) {
-      *slot = rows;
+    if let Some(scroll) = content.child_mut::<ScrollView>(3) {
+      if let Some(slot) = scroll.child_mut::<VStack>() {
+        *slot = rows;
+      }
     }
   }
 
@@ -1174,18 +1195,22 @@ let mut sidebar = Sidebar::new(items)
       field.set_theme(theme.mode, accent, theme.glass);
       field.set_focused(self.focused);
     }
-    if let Some(button) = content.child_mut::<Button>(4) {
-      button.set_theme(accent, dark);
-      button.set_palette(BUTTON_BG_LIGHT, color("#272727"));
-      button.set_focused(self.focused);
-    }
-    if let Some(rows) = content.child_mut::<VStack>(3) {
-      for index in 0..rows.len() {
-        if let Some(button) = rows.child_mut::<Button>(index) {
-          button.set_theme(accent, dark);
-          button.set_palette(BUTTON_BG_LIGHT, color("#272727"));
-          button.set_focused(self.focused);
+    if let Some(rows) = content.child_mut::<ScrollView>(3) {
+      if let Some(rows) = rows.child_mut::<VStack>() {
+        for index in 0..rows.len() {
+          if let Some(button) = rows.child_mut::<Button>(index) {
+            button.set_theme(accent, dark);
+            button.set_palette(BUTTON_BG_LIGHT, color("#272727"));
+            button.set_focused(self.focused);
+          }
         }
+      }
+    }
+    // Header row: title, spacer, close button.
+    if let Some(header) = content.child_mut::<HStack>(0) {
+      if let Some(button) = header.child_mut::<Button>(2) {
+        button.set_theme(accent, dark);
+        button.set_focused(self.focused);
       }
     }
   }

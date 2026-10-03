@@ -31,6 +31,15 @@ CoreData. See [Weather.md](Weather.md) for details.
 
 ## Changelog
 
+- 2026-10-03: The add-location sheet follows the macOS open panel:
+  `SheetSize::Large`, a header row with the title and an `xmark` close
+  button, and a results list in a `ScrollView` that fills the rest of
+  the card (it took no leftover space before). The search field gets
+  `SearchField::fill` (`#EDEDF0`) because the glass body samples the
+  window backdrop, which tinted the field blue even on the white card.
+  Dropped the now unused `search.close` and `search.add` strings. See
+  [Weather.md](Weather.md).
+
 - 2026-10-03: Locations are removed through a sidebar context menu.
   Right-clicking a sidebar entry selects it and opens a `ContextMenu`
   with one destructive `Delete` row (macOS system red); the row asks

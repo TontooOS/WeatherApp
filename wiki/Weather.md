@@ -96,17 +96,23 @@ GradientView::new(ScrollView::new(column), color(top), color(bottom))
 
 ## Add Location
 
-The `+` pill opens a `BasicSheet<VStack>` (`SheetSize::Half`, white card)
-holding five children by index:
+The `+` pill opens a `BasicSheet<VStack>` (`SheetSize::Large`, white card)
+shaped like the macOS open panel, holding four children by index:
 
 | Index | Child |
 |---|---|
-| 0 | Title text |
-| 1 | `SearchField` with `on_change` |
+| 0 | `HStack` header: title text, `Spacer`, close button (`xmark`, plain style) |
+| 1 | `SearchField` with a solid `#EDEDF0` fill and `on_change` |
 | 2 | Message line (hint, or "no results") |
-| 3 | `VStack` of result buttons, replaced on every search |
-| 4 | Close button |
+| 3 | `ScrollView` holding a `VStack` of result buttons, replaced on every search |
 
+- The field uses `SearchField::fill` instead of the glass capsule: the
+  `Lens` body samples the window backdrop, so a field on the white card
+  came out tinted by the detail gradient behind it.
+- The results live in a `ScrollView` (the only element with `flex`), so
+  they fill the rest of the card and scroll when there are many hits;
+  `theme_sheet` and `set_results` reach them through
+  `child_mut::<ScrollView>(3).child_mut::<VStack>()`.
 - Typing debounces `450 ms` (`SEARCH_DEBOUNCE`) before a worker thread runs
   `WeatherKit::search_places`; Enter searches immediately. Every request
   carries a sequence number and stale results are dropped.
@@ -114,7 +120,8 @@ holding five children by index:
   because `SearchField` has no public focus call.
 - Clicking a result writes it into a shared cell; `draw` picks it up,
   dismisses the sheet, dedupes by coordinates and adds the place.
-- ESC closes through `BasicSheet::key`.
+- ESC closes through `BasicSheet::key`; the header `xmark` sets the same
+  close flag as the old bottom button.
 
 ## Remove Location
 
@@ -214,8 +221,7 @@ All strings come from the Accessibility `LangStore` (`src/lang.rs`,
 
 | Key group | Purpose |
 |---|---|
-| `sidebar.delete` | The context menu row label (`Delete` / `Loeschen`) |
-| `delete.title`, `delete.message` | Alert title and the `%name%` message |
+| `sidebar.delete` | The context menu row label (`Delete` / `Loeschen`) || `delete.title`, `delete.message` | Alert title and the `%name%` message |
 | `delete.cancel`, `delete.remove` | Alert buttons (the remove one is red) |
 | `hour.format` | `12h` or `24h`; `lang::uses_24h_clock` drives `clock_time` and `hour_label` |
 | `hour.am`, `hour.pm` | Suffixes, empty for the 24 hour locale |
@@ -231,7 +237,7 @@ All strings come from the Accessibility `LangStore` (`src/lang.rs`,
 | `Sidebar`, `SidebarItem` | Navigation column, traffic lights, filter row |
 | `GradientPaint` | Condition gradient (inside the custom `GradientView`) |
 | `ScrollView` | Detail column |
-| `VStack`, `HStack`, `Padding`, `Background` | Layout and cards |
+| `VStack`, `HStack`, `Spacer`, `Padding`, `Background` | Layout and cards |
 | `BasicText` | Every text, `size` and `weight` overrides for the display temperature |
 | `SFSymbolImage` | Condition symbols |
 | `LinearProgress` | Daily temperature bar |

@@ -11,8 +11,6 @@
     "search.placeholder": "City or place name",
     "search.hint": "Type to search, then pick a place.",
     "search.empty": "No results.",
-    "search.add": "Add",
-    "search.close": "Close",
     "sidebar.delete": "Delete",
     "delete.title": "Remove location",
     "delete.message": "Remove %name% from the sidebar?",
